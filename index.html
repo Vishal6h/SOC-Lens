@@ -88,6 +88,42 @@
       </div>
     </section>
 
+    <section id="history-section" class="panel wide-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">SUPERVISORY CHANGE</p><h2>Assessment history and trend</h2></div>
+        <span id="history-state" class="count-badge">Loading history</span>
+      </div>
+      <p id="history-unavailable" class="empty-state">Loading persisted assessments…</p>
+      <div id="history-content" hidden>
+        <div id="history-summary" class="summary-grid history-summary"></div>
+        <div id="history-latest-delta" class="latest-delta"></div>
+
+        <h3>Overall score over time</h3>
+        <div id="trend-chart" class="trend-chart" aria-label="Historical overall assessment scores"></div>
+        <p class="muted">Observed assessments only. The line is historical and does not forecast future performance.</p>
+
+        <div class="history-compare">
+          <div>
+            <h3>Compare compatible assessments</h3>
+            <p class="muted">Selections are limited to the latest policy and scope compatibility cohort.</p>
+          </div>
+          <div class="compare-controls">
+            <label>Earlier assessment<select id="history-before"></select></label>
+            <label>Later assessment<select id="history-after"></select></label>
+            <button id="history-compare">Compare</button>
+          </div>
+        </div>
+        <div id="history-comparison" class="history-comparison"></div>
+
+        <h3>Persisted assessments</h3>
+        <div class="table-wrap"><table>
+          <caption class="sr-only">Persisted assessments for the current scope</caption>
+          <thead><tr><th>Run</th><th>Assessed</th><th>Evidence as of</th><th>Policy</th><th>Score</th><th>Confidence</th><th>Maturity</th><th>Lifecycle</th><th>Drift</th><th>Report</th></tr></thead>
+          <tbody id="history-table"></tbody>
+        </table></div>
+      </div>
+    </section>
+
     <section class="provenance">
       <div class="panel">
         <h2>Reproducible evidence chain</h2>

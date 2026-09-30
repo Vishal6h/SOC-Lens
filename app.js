@@ -1,4 +1,5 @@
 let demo, current, mode='baseline';
+let historyRequest=0;
 const el=id=>document.getElementById(id);
 const STAGES=['detection','investigation','escalation','response','closure'];
 const TIMINGS={
@@ -37,7 +38,7 @@ function evidence(value){
 }
 
 function badge(value,extra=''){
-  const normalized=String(value||'unknown').toLowerCase().replaceAll('_','-');
+  const normalized=String(value||'unknown').toLowerCase().replaceAll('_','-').replace(/\s+/g,'-');
   return add('span',title(value||'unknown'),'badge '+normalized+(extra?' '+extra:''));
 }
 
@@ -323,6 +324,241 @@ function renderLifecycle(report){
   incidents.forEach((incident,index)=>incidentList.append(incidentPanel(incident,index)));
 }
 
+function signed(value,suffix=''){
+  if(!Number.isFinite(value))return '—';
+  return (value>0?'+':'')+number(value)+suffix;
+}
+
+function displayTime(value){
+  const parsed=new Date(value);
+  if(Number.isNaN(parsed.getTime()))return value||'—';
+  return parsed.toISOString().slice(0,16).replace('T',' ')+' UTC';
+}
+
+function svgNode(name,attributes={},textValue=''){
+  const node=document.createElementNS('http://www.w3.org/2000/svg',name);
+  for(const [key,value] of Object.entries(attributes))node.setAttribute(key,String(value));
+  if(textValue)node.textContent=textValue;
+  return node;
+}
+
+function renderTrendChart(points){
+  const container=el('trend-chart');
+  container.replaceChildren();
+  if(!points.length){
+    container.append(add('p','No compatible historical observations are available.','empty-inline'));
+    return;
+  }
+  const width=900,height=230,left=48,right=24,top=20,bottom=48;
+  const chartWidth=width-left-right,chartHeight=height-top-bottom;
+  const x=index=>points.length===1?left+chartWidth/2:left+(chartWidth*index/(points.length-1));
+  const y=value=>top+chartHeight-(Math.max(0,Math.min(100,value))*chartHeight/100);
+  const svg=svgNode('svg',{viewBox:`0 0 ${width} ${height}`,role:'img','aria-label':'Overall assessment score by assessment date'});
+  for(const mark of [0,25,50,75,100]){
+    const position=y(mark);
+    svg.append(svgNode('line',{x1:left,y1:position,x2:width-right,y2:position,class:'trend-grid'}));
+    svg.append(svgNode('text',{x:left-9,y:position+4,class:'trend-axis','text-anchor':'end'},String(mark)));
+  }
+  const coordinates=points.map((point,index)=>`${x(index)},${y(point.score)}`).join(' ');
+  if(points.length>1)svg.append(svgNode('polyline',{points:coordinates,class:'trend-line'}));
+  points.forEach((point,index)=>{
+    const horizontal=x(index),vertical=y(point.score);
+    const group=svgNode('g',{class:'trend-point'});
+    group.append(svgNode('circle',{cx:horizontal,cy:vertical,r:5}));
+    group.append(svgNode('text',{x:horizontal,y:vertical-11,'text-anchor':'middle',class:'trend-value'},number(point.score)));
+    group.append(svgNode('text',{x:horizontal,y:height-20,'text-anchor':'middle',class:'trend-date'},String(point.assessed_at||'').slice(0,10)));
+    group.append(svgNode('title',{},`${displayTime(point.assessed_at)} · score ${number(point.score)}`));
+    svg.append(group);
+  });
+  container.append(svg);
+}
+
+function deltaGrid(delta){
+  const container=add('div','','delta-grid');
+  const entries=[['Overall',delta&&delta.score],['Confidence',delta&&delta.confidence]];
+  for(const name of ['Detection','Response','Telemetry','Quality','Governance']){
+    entries.push([name,delta&&delta.domains&&delta.domains[name]]);
+  }
+  entries.forEach(([label,value])=>{
+    const card=summaryCard(label,signed(value,' pts'));
+    if(Number.isFinite(value))card.classList.add(value>0?'positive':value<0?'negative':'neutral');
+    container.append(card);
+  });
+  return container;
+}
+
+function renderHistorySummary(history){
+  const summary=history.summary;
+  const container=el('history-summary');
+  const latest=el('history-latest-delta');
+  container.replaceChildren();
+  latest.replaceChildren();
+  if(!summary){
+    latest.append(add('p','A second compatible assessment is required for change metrics.','empty-inline'));
+    return;
+  }
+  container.append(
+    summaryCard('Current score',number(summary.current)),
+    summaryCard('Previous delta',signed(summary.previous_delta&&summary.previous_delta.score,' pts')),
+    summaryCard('Best score',number(summary.best&&summary.best.score)),
+    summaryCard('Worst score',number(summary.worst&&summary.worst.score)),
+    summaryCard('Direction',title(summary.direction),summary.streak?summary.streak+' consecutive change'+(summary.streak===1?'':'s'):'')
+  );
+  latest.append(add('p','Latest compatible change','trace-title'));
+  if(summary.previous_delta)latest.append(deltaGrid(summary.previous_delta));
+  else latest.append(add('p','A second compatible assessment is required for change metrics.','empty-inline'));
+}
+
+function historyOption(record){
+  const option=document.createElement('option');
+  option.value=record.assessment_id;
+  option.textContent=String(record.assessed_at||'').slice(0,10)+' · '+number(record.score)+' · '+record.maturity;
+  return option;
+}
+
+function renderHistorySelections(points){
+  const before=el('history-before'),after=el('history-after'),button=el('history-compare');
+  before.replaceChildren();
+  after.replaceChildren();
+  points.forEach(point=>{
+    before.append(historyOption(point));
+    after.append(historyOption(point));
+  });
+  const enabled=points.length>=2;
+  before.disabled=!enabled;
+  after.disabled=!enabled;
+  button.disabled=!enabled;
+  if(enabled){
+    before.value=points[points.length-2].assessment_id;
+    after.value=points[points.length-1].assessment_id;
+  }
+  const comparison=el('history-comparison');
+  comparison.replaceChildren();
+  if(!enabled)comparison.append(add('p','At least two compatible assessments are required for comparison.','empty-inline'));
+}
+
+function renderHistoryTable(records,trendPoints){
+  const body=el('history-table');
+  body.replaceChildren();
+  const compatible=new Set(trendPoints.map(point=>point.assessment_id));
+  const driftById=new Map(trendPoints.map(point=>[point.assessment_id,point.drift]));
+  for(const record of records){
+    const row=document.createElement('tr');
+    const run=document.createElement('th');
+    run.scope='row';
+    run.append(add('code',record.assessment_id));
+    row.append(run);
+    const values=[displayTime(record.assessed_at),displayTime(record.evidence_as_of),record.policy_version,number(record.score),number(record.confidence)+'%',record.maturity,record.lifecycle_enabled?'Enabled':'Legacy'];
+    values.forEach(value=>row.append(add('td',String(value))));
+    const drift=driftById.get(record.assessment_id);
+    const driftCell=document.createElement('td');
+    driftCell.append(compatible.has(record.assessment_id)?badge(drift&&drift.detected?'drift':'clear'):badge('incompatible'));
+    row.append(driftCell);
+    const action=document.createElement('td');
+    const button=add('button','View','table-action');
+    button.type='button';
+    button.onclick=()=>openHistoricalAssessment(record.assessment_id);
+    action.append(button);
+    row.append(action);
+    body.append(row);
+  }
+}
+
+function renderHistoryComparison(result){
+  const container=el('history-comparison');
+  container.replaceChildren();
+  const heading=add('div','','comparison-heading');
+  heading.append(add('strong','Comparison result'),badge(result.drift_detected?'drift detected':'no drift'));
+  container.append(heading);
+  container.append(deltaGrid({score:result.score_delta,confidence:result.confidence_delta,domains:result.domain_delta}));
+  const drift=result.drift||{};
+  if(Array.isArray(drift.reasons)&&drift.reasons.length){
+    const list=add('ul','','drift-reasons');
+    drift.reasons.forEach(reason=>list.append(add('li',reason)));
+    container.append(list);
+  }else{
+    container.append(add('p','No configured historical drift rule was triggered.','empty-inline'));
+  }
+}
+
+async function fetchJson(url){
+  const response=await fetch(url);
+  const body=await response.json();
+  if(!response.ok)throw Error(body.error||'History request failed');
+  return body;
+}
+
+async function runHistoryComparison(){
+  const before=el('history-before').value,after=el('history-after').value;
+  const container=el('history-comparison');
+  if(!before||!after)return;
+  if(before===after){
+    container.replaceChildren(add('p','Choose two different assessments.','empty-inline'));
+    return;
+  }
+  container.replaceChildren(add('p','Comparing assessments…','empty-inline'));
+  try{
+    const result=await fetchJson('/api/history/compare?before='+encodeURIComponent(before)+'&after='+encodeURIComponent(after));
+    renderHistoryComparison(result);
+  }catch(error){
+    container.replaceChildren(add('p',error.message,'history-error'));
+  }
+}
+
+async function openHistoricalAssessment(assessmentId){
+  try{
+    const stored=await fetchJson('/api/history/'+encodeURIComponent(assessmentId));
+    mode='history';
+    render(stored.report);
+    window.scrollTo({top:0});
+    el('status').textContent='Viewing historical assessment '+assessmentId+' · '+displayTime(stored.assessment.assessed_at);
+  }catch(error){
+    el('status').textContent=error.message;
+  }
+}
+
+async function loadHistory(scope){
+  const request=++historyRequest;
+  const content=el('history-content'),unavailable=el('history-unavailable');
+  content.hidden=true;
+  unavailable.hidden=false;
+  unavailable.textContent='Loading persisted assessments…';
+  el('history-state').textContent='Loading history';
+  if(!scope){
+    unavailable.textContent='No scope is available for historical lookup.';
+    return;
+  }
+  try{
+    const encoded=encodeURIComponent(scope);
+    const [listing,history]=await Promise.all([
+      fetchJson('/api/history?scope='+encoded),
+      fetchJson('/api/history/trend?scope='+encoded)
+    ]);
+    if(request!==historyRequest)return;
+    const records=Array.isArray(listing.assessments)?listing.assessments:[];
+    const points=Array.isArray(history.points)?history.points:[];
+    if(!records.length){
+      unavailable.textContent='No persisted assessments are available for this scope.';
+      el('history-state').textContent='No history';
+      return;
+    }
+    unavailable.hidden=true;
+    content.hidden=false;
+    el('history-state').textContent=records.length+' assessment'+(records.length===1?'':'s');
+    renderHistorySummary(history);
+    renderTrendChart(points);
+    renderHistorySelections(points);
+    renderHistoryTable(records,points);
+    if(history.excluded_incompatible){
+      el('history-state').textContent+=` · ${history.excluded_incompatible} incompatible`;
+    }
+  }catch(error){
+    if(request!==historyRequest)return;
+    el('history-state').textContent='History unavailable';
+    unavailable.textContent=error.message;
+  }
+}
+
 function renderPolicy(report){
   const policy=report.policy||{};
   el('policy-version').textContent='Active policy: '+(policy.id||'Not reported');
@@ -361,6 +597,7 @@ function render(report){
   renderFindings(report);
   renderLifecycle(report);
   renderPolicy(report);
+  loadHistory(report.scope);
   el('scope').textContent=(report.policy&&report.policy.id?report.policy.id:'Unversioned policy')+' · '+(counts.sources??0)+' declared sources · '+(counts.reviewed_cases??0)+' reviewed cases';
   el('hash').textContent=report.sha256?'SHA-256 '+report.sha256:'Input digest not reported';
   if(mode==='degraded'&&demo&&demo.comparison){
@@ -407,5 +644,6 @@ el('download').onclick=()=>{
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
+el('history-compare').onclick=runHistoryComparison;
 
 init();

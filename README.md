@@ -68,6 +68,25 @@ For lifecycle-enabled assessments, the dashboard includes:
 
 Timely, delayed, missing, unmeasured, and not-required outcomes are visibly distinguished. For legacy reports without lifecycle evidence, lifecycle drill-down is replaced with an explicit unavailable message; existing score cards, domain values, confidence factors, findings, provenance, import, and export remain available.
 
+## Assessment history and trends
+
+SQLite schema version 2 stores each assessment run under an independent `assessment_id`. The input digest remains an integrity identifier but is no longer a primary key, so the same evidence can be intentionally assessed and retained more than once. Each row records the scope, run time, evidence `as_of`, policy version, input and scope digests, overall score, confidence, maturity, all five domain scores, lifecycle mode, origin, and serialized evidence/report. Storage remains local in `assessments.sqlite3`; no history data leaves the application.
+
+On first use, the original SHA-keyed `assessments` table is renamed to `assessments_legacy_v1`, a version-2 table is created, and legacy rows are copied with stable `legacy-<sha256>` assessment IDs. Because the old schema did not record a run time, migrated rows use evidence `as_of` as the best available timestamp. The backup table is retained, inserts are idempotent, and `PRAGMA user_version` records schema version 2. Repeated startup neither deletes nor duplicates migrated records. New databases initialize directly at version 2.
+
+Local read-only history routes are:
+
+- `GET /api/history?scope=<scope>` — newest-first assessment summaries;
+- `GET /api/history/<assessment_id>` — one stored report and its metadata, without returning raw evidence;
+- `GET /api/history/compare?before=<id>&after=<id>` — deterministic deltas and drift analysis; and
+- `GET /api/history/trend?scope=<scope>` — chronological points and latest-cohort trend metrics.
+
+A direct comparison requires the same policy version, `scope_sha256`, and scope identifier. Incompatible comparisons return HTTP 409 with the reason instead of a delta. A trend uses the newest assessment's policy/scope-hash compatibility cohort and reports how many older rows were excluded. It exposes overall score, confidence, and all five domains, each point's previous-assessment delta, best and worst score, and a deterministic improved/declined/unchanged streak. It performs no forecasting.
+
+Persisted-history drift is explainable and deterministic. It triggers when the overall score declines by at least 10 points, confidence is below the policy floor, any domain declines by at least 10 points, a new High/Critical finding appears, or an identifiable lifecycle gap that existed before the immediately preceding assessment reappears. The existing assessment scoring, confidence, maturity, findings, and `sat-sa-demo-2.0` policy are unchanged.
+
+The dashboard lists all stored runs for the active scope, displays compatible trend and latest-delta summaries, permits two compatible runs to be compared, and can reopen a stored report. Its SVG line shows observed overall scores only. Three fixed synthetic runs—healthy, degraded, and current healthy—are seeded once for the demonstration; their stable IDs prevent refresh-driven duplication.
+
 ## Scoring contract
 
 Each domain is 0–100. Overall score = .30 Detection + .25 Response + .20 Telemetry + .15 Quality + .10 Governance.

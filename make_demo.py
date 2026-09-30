@@ -59,9 +59,32 @@ fifth_detection=datetime.fromisoformat(degraded['lifecycles'][4]['detection']['t
 degraded['lifecycles'][4]['escalation']['timestamp']=iso(fifth_detection+timedelta(minutes=25))
 degraded['lifecycles'][4]['response']=None
 degraded['lifecycles'][5]['investigation']=None
+
+timestamp_fields={'as_of','last_seen','tested_at','detected_at','contained_at','timestamp'}
+def shifted_evidence(evidence,days):
+    shifted=copy.deepcopy(evidence)
+    def visit(value):
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key in timestamp_fields and item is not None:
+                    value[key]=iso(datetime.fromisoformat(item)+timedelta(days=days))
+                else:
+                    visit(item)
+        elif isinstance(value,list):
+            for item in value:
+                visit(item)
+    visit(shifted)
+    return shifted
+
+demo_history=[
+    {'assessment_id':'demo-history-001','assessed_at':iso(now-timedelta(days=14)+timedelta(minutes=5)),'evidence':shifted_evidence(data,-14)},
+    {'assessment_id':'demo-history-002','assessed_at':iso(now-timedelta(days=7)+timedelta(minutes=5)),'evidence':shifted_evidence(degraded,-7)},
+    {'assessment_id':'demo-history-003','assessed_at':iso(now+timedelta(minutes=5)),'evidence':copy.deepcopy(data)},
+]
 (ROOT/'data').mkdir(exist_ok=True)
 for name,obj in [('baseline',data),('degraded',degraded)]:
     (ROOT/'data'/f'{name}.json').write_text(json.dumps(obj,indent=2))
+(ROOT/'data'/'demo-history.json').write_text(json.dumps(demo_history,indent=2))
 a,b=assess(data),assess(degraded)
 (ROOT/'data'/'demo-results.json').write_text(json.dumps({'baseline':a,'degraded':b,'comparison':compare(a,b)},indent=2))
 print(json.dumps({'baseline':{k:a[k] for k in ['score','confidence','maturity','domains','counts']},'degraded':{k:b[k] for k in ['score','confidence','maturity']},'comparison':compare(a,b)},indent=2))
