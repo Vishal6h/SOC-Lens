@@ -1,7 +1,109 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SAT-SA Supervisory Console</title><link rel="stylesheet" href="/style.css"></head><body>
-<header><div class="brand">SAT-SA <span>SUPERVISORY CONSOLE</span></div><div class="demo">SYNTHETIC EVIDENCE DEMO</div></header>
-<main><div class="intro"><div><p class="eyebrow">CONTINUOUS SOC ASSESSMENT</p><h1>Evidence before assurance.</h1><p>Inspect risk-weighted coverage, response execution and the confidence behind each assessment.</p></div><div class="actions"><button id="baseline">Baseline</button><button id="degraded">Telemetry outage</button><label class="upload">Import JSON<input type="file" id="upload" accept="application/json,.json"></label><button id="download">Export report</button></div></div>
-<p id="status" role="status"></p><section class="metrics"><article><label>ASSESSMENT SCORE</label><strong id="score"></strong><small>Weighted policy score / 100</small></article><article><label>EVIDENCE CONFIDENCE</label><strong id="confidence"></strong><small>Completeness × freshness × linkage</small></article><article><label>MATURITY GATE</label><strong id="maturity"></strong><small id="gate"></small></article><article><label>ASSESSED EVIDENCE</label><strong id="count"></strong><small id="countsub"></small></article></section>
-<section class="workspace"><div class="panel"><h2>Domain score decomposition</h2><p class="muted">Detection 30% · Response 25% · Telemetry 20% · Quality 15% · Governance 10%</p><div id="domains"></div><p id="delta" class="callout"></p><p class="muted">Quality measures reviewed-alert precision. Recall requires controlled adversary tests.</p></div><div class="panel"><h2>Prioritized supervisory findings</h2><div id="findings"></div></div></section>
-<section class="provenance"><div><h2>Reproducible evidence chain</h2><p id="scope"></p><code id="hash"></code></div><div><h2>Assessment policy</h2><p>Confidence below 70 or fewer than 10 reviewed cases: provisional.<br>Missing critical controls cap maturity at L2. L4 requires ≥75 detection coverage.</p></div></section>
-<footer>Local Python + SQLite demonstrator. JSON adapters only. Live SIEM/EDR integrations and independent validation are pending.</footer></main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>SAT-SA Supervisory Console</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">SAT-SA <span>SUPERVISORY CONSOLE</span></div>
+    <div class="demo">SYNTHETIC EVIDENCE DEMO</div>
+  </header>
+  <main>
+    <div class="intro">
+      <div>
+        <p class="eyebrow">CONTINUOUS SOC ASSESSMENT</p>
+        <h1>Evidence before assurance.</h1>
+        <p>Trace supervisory scores through operational lifecycle execution to the evidence identifiers that support them.</p>
+      </div>
+      <div class="actions">
+        <button id="baseline">Baseline</button>
+        <button id="degraded">Degraded execution</button>
+        <label class="upload">Import JSON<input type="file" id="upload" accept="application/json,.json" aria-label="Import assessment JSON"></label>
+        <button id="download">Export report</button>
+      </div>
+    </div>
+
+    <p id="status" role="status"></p>
+
+    <section class="metrics" aria-label="Assessment summary">
+      <article><label>ASSESSMENT SCORE</label><strong id="score"></strong><small>Weighted policy score / 100</small></article>
+      <article><label>EVIDENCE CONFIDENCE</label><strong id="confidence"></strong><small>Completeness × freshness × linkage</small></article>
+      <article><label>MATURITY GATE</label><strong id="maturity"></strong><small id="gate"></small></article>
+      <article><label>ASSESSED EVIDENCE</label><strong id="count"></strong><small id="countsub"></small></article>
+    </section>
+
+    <section class="workspace">
+      <div class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">SCORE</p><h2>Domain decomposition</h2></div>
+          <span class="section-note">Five-domain supervisory policy</span>
+        </div>
+        <div id="domains"></div>
+        <p id="delta" class="callout"></p>
+      </div>
+      <div class="panel">
+        <div class="section-heading">
+          <div><p class="eyebrow">EXPLANATION</p><h2>Domain evidence components</h2></div>
+        </div>
+        <div id="domain-explanations"></div>
+        <div id="confidence-factors" class="factor-row"></div>
+      </div>
+    </section>
+
+    <section class="panel wide-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">SUPERVISORY ACTIONS</p><h2>Findings and evidence traceability</h2></div>
+        <span id="finding-count" class="count-badge"></span>
+      </div>
+      <div id="findings" class="findings-list"></div>
+    </section>
+
+    <section id="lifecycle-section" class="panel wide-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">OPERATIONAL EXECUTION</p><h2>Incident lifecycle assessment</h2></div>
+        <span id="lifecycle-state" class="count-badge"></span>
+      </div>
+      <p id="lifecycle-unavailable" class="empty-state">Loading lifecycle assessment…</p>
+      <div id="lifecycle-content" hidden>
+        <div id="score-trace" class="score-trace" aria-label="Score to evidence trace"></div>
+        <div id="lifecycle-summary" class="summary-grid"></div>
+
+        <h3>Lifecycle component performance</h3>
+        <div class="table-wrap"><table>
+          <caption class="sr-only">Lifecycle component performance and stage outcome counts</caption>
+          <thead><tr><th>Component</th><th>Score</th><th>Applicable</th><th>Timely</th><th>Delayed</th><th>Missing</th><th>Unmeasured</th><th>N/A</th></tr></thead>
+          <tbody id="component-table"></tbody>
+        </table></div>
+
+        <h3>Average lifecycle timing</h3>
+        <div id="timing-summary" class="timing-grid"></div>
+
+        <div class="section-heading incident-heading">
+          <div><h3>Correlated incidents</h3><p class="muted">Expand an incident to inspect stages, evaluations, and exact evidence identifiers.</p></div>
+        </div>
+        <div id="incidents" class="incident-list"></div>
+      </div>
+    </section>
+
+    <section class="provenance">
+      <div class="panel">
+        <h2>Reproducible evidence chain</h2>
+        <p id="scope"></p>
+        <code id="hash"></code>
+      </div>
+      <div class="panel">
+        <h2>Assessment policy</h2>
+        <p><strong id="policy-version"></strong></p>
+        <p>Confidence below 70 or fewer than 10 reviewed cases: provisional.<br>Missing critical controls cap maturity at L2. L4 requires ≥75 detection coverage.</p>
+        <div id="policy-thresholds"></div>
+      </div>
+    </section>
+
+    <footer>Local Python + SQLite demonstrator. Evidence references are identifiers only; SAT-SA does not retrieve external evidence.</footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

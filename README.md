@@ -10,7 +10,7 @@ Python 3.10 or newer. No external Python packages or API keys are required.
 python server.py
 ```
 
-Open http://127.0.0.1:8765. Compare Baseline with Telemetry outage, import a JSON file following `data/baseline.json`, and export the resulting evidence report. Assessments persist locally in `assessments.sqlite3`. Keep that database private. The demo binds only to localhost.
+Open http://127.0.0.1:8765. Compare Baseline with Degraded execution, import a JSON file following `data/baseline.json`, and export the resulting evidence report. Assessments persist locally in `assessments.sqlite3`. Keep that database private. The demo binds only to localhost.
 
 ```text
 python -m unittest -v
@@ -50,6 +50,23 @@ Each applicable requirement receives 1 credit when present and within target, 0.
 For lifecycle-enabled inputs containing incidents, Response pools the existing legacy containment-SLA credits with investigation, applicable escalation, and lifecycle response credits. Quality pools the existing reviewed-case true-positive credits with closure-discipline credits. Each evidence obligation has equal weight inside its domain; the five overall domain weights do not change. The report exposes every requirement count, credit, sub-score, and resulting domain effect.
 
 Confidence remains an evidence-quality measure rather than a performance score. Missing or delayed stages do not directly lower confidence. Present lifecycle stages join the traceability calculation, so a present stage without an evidence reference can lower confidence. Lifecycle performance introduces no new maturity gate; score changes flow through the existing maturity bands and gates.
+
+## Dashboard evidence drill-down
+
+The dashboard presents the report as a score-to-evidence path: overall score, affected Response or Quality domain, lifecycle component, correlated incident, evaluated stage, and related finding or evidence reference. It displays values already calculated by the assessment engine and does not reproduce scoring policy in JavaScript.
+
+All findings are shown. Optional trace fields—including owner, incident, alert, case, lifecycle stage, finding type, observed delay, policy threshold, and evidence reference—appear only when the report supplies them. Evidence references are displayed exactly as identifiers for copying and human verification. In particular, `demo://` references are not hyperlinks, and the application does not retrieve or fabricate evidence content.
+
+For lifecycle-enabled assessments, the dashboard includes:
+
+- final, legacy, lifecycle, and lifecycle-effect values for the Response and Quality domains;
+- investigation, escalation, response, and closure requirement counts and scores;
+- operational-response and closure-discipline sub-scores;
+- complete and incomplete incident counts plus aggregate lifecycle timing averages;
+- expandable incident records containing correlation IDs, stage timestamps and status, timing results, policy targets, earned credit, and evidence references; and
+- the active policy version and its prototype supervisory lifecycle thresholds.
+
+Timely, delayed, missing, unmeasured, and not-required outcomes are visibly distinguished. For legacy reports without lifecycle evidence, lifecycle drill-down is replaced with an explicit unavailable message; existing score cards, domain values, confidence factors, findings, provenance, import, and export remain available.
 
 ## Scoring contract
 
