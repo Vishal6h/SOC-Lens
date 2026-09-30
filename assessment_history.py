@@ -1,15 +1,16 @@
 """Versioned local assessment history and deterministic trend analysis."""
 from datetime import datetime, timezone
 from pathlib import Path
+from contextlib import contextmanager
 import json
 import re
 import sqlite3
 import uuid
 
 from engine import POLICY, compare
+from reporting import DOMAINS, assessment_manifest, supervisor_summary
 
 SCHEMA_VERSION = 2
-DOMAINS = ("Detection", "Response", "Telemetry", "Quality", "Governance")
 OVERALL_DECLINE_THRESHOLD = 10.0
 DOMAIN_DECLINE_THRESHOLD = 10.0
 ASSESSMENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
@@ -23,10 +24,28 @@ class ComparisonUnavailable(ValueError):
     pass
 
 
+class UnsupportedDatabaseVersion(RuntimeError):
+    pass
+
+
 def _connect(path):
     connection = sqlite3.connect(Path(path))
     connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=5000")
     return connection
+
+
+@contextmanager
+def _database(path):
+    connection = _connect(path)
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 def _table_exists(connection, name):
@@ -120,7 +139,13 @@ def _migrate_v1_rows(connection):
 
 def initialize_database(path):
     """Create schema v2 or migrate the original SHA-keyed table without deleting it."""
-    with _connect(path) as connection:
+    with _database(path) as connection:
+        current_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        if current_version > SCHEMA_VERSION:
+            raise UnsupportedDatabaseVersion(
+                f"Database schema version {current_version} is newer than supported version {SCHEMA_VERSION}"
+            )
+        connection.execute("BEGIN IMMEDIATE")
         if _table_exists(connection, "assessments"):
             columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(assessments)")
@@ -184,7 +209,7 @@ def store_assessment(path, evidence, report, *, assessed_at=None, assessment_id=
         json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False),
         str(origin),
     )
-    with _connect(path) as connection:
+    with _database(path) as connection:
         connection.execute(
             ("INSERT OR IGNORE" if if_absent else "INSERT") + " INTO assessments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             values,
@@ -194,7 +219,7 @@ def store_assessment(path, evidence, report, *, assessed_at=None, assessment_id=
 
 def assessment_exists(path, assessment_id):
     initialize_database(path)
-    with _connect(path) as connection:
+    with _database(path) as connection:
         return connection.execute(
             "SELECT 1 FROM assessments WHERE assessment_id=?", (assessment_id,)
         ).fetchone() is not None
@@ -231,7 +256,7 @@ def list_assessments(path, scope, *, limit=100, chronological=False):
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
         raise ValueError("limit must be between 1 and 500")
     direction = "ASC" if chronological else "DESC"
-    with _connect(path) as connection:
+    with _database(path) as connection:
         rows = connection.execute(
             f"SELECT * FROM assessments WHERE scope=? ORDER BY assessed_at {direction}, assessment_id {direction} LIMIT ?",
             (scope, limit),
@@ -242,13 +267,20 @@ def list_assessments(path, scope, *, limit=100, chronological=False):
 def get_assessment(path, assessment_id, *, include_evidence=False):
     initialize_database(path)
     assessment_id = _validated_id(assessment_id)
-    with _connect(path) as connection:
+    with _database(path) as connection:
         row = connection.execute(
             "SELECT * FROM assessments WHERE assessment_id=?", (assessment_id,)
         ).fetchone()
     if row is None:
         raise HistoryNotFound("Assessment not found")
-    result = {"assessment": _summary(row), "report": json.loads(row["report"])}
+    report = json.loads(row["report"])
+    summary = _summary(row)
+    result = {
+        "assessment": summary,
+        "manifest": assessment_manifest(summary, report, SCHEMA_VERSION),
+        "report": report,
+        "supervisory_summary": supervisor_summary(report),
+    }
     if include_evidence:
         result["evidence"] = json.loads(row["evidence"])
     return result

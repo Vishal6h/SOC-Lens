@@ -1,5 +1,6 @@
 {
   "baseline": {
+    "report_schema_version": "sat-sa-report-1.0",
     "scope": "Synthetic SOC A / scope-v1",
     "as_of": "2026-09-30T12:00:00+00:00",
     "synthetic": true,
@@ -25,6 +26,8 @@
         "missing_credit": 0.0
       }
     },
+    "data_classification": "SYNTHETIC DEMO DATA",
+    "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
     "score": 83.4,
     "confidence": 94.4,
     "maturity": "L3",
@@ -603,9 +606,55 @@
       "Precision is a quality proxy, not recall",
       "Confidence is an evidence index, not a statistical probability",
       "Policy weights and maturity bands require pilot calibration"
-    ]
+    ],
+    "supervisory_summary": {
+      "score": 83.4,
+      "maturity": "L3",
+      "confidence": 94.4,
+      "strongest_domain": {
+        "name": "Telemetry",
+        "score": 100.0
+      },
+      "weakest_domain": {
+        "name": "Detection",
+        "score": 70.0
+      },
+      "high_critical_findings": 1,
+      "lifecycle": {
+        "enabled": true,
+        "incident_count": 6,
+        "complete_incidents": 6,
+        "completeness_percent": 100.0
+      },
+      "drift": {
+        "status": "not_evaluated",
+        "detected": null,
+        "reasons": []
+      },
+      "top_evidence_backed_issues": [
+        {
+          "priority": "High",
+          "title": "Validate T1110",
+          "owner": "Detection engineering",
+          "evidence_ref": "demo://validation/T1110"
+        },
+        {
+          "priority": "Medium",
+          "title": "Validate T1041",
+          "owner": "Detection engineering",
+          "evidence_ref": "demo://validation/T1041"
+        },
+        {
+          "priority": "Medium",
+          "title": "Validate T1070",
+          "owner": "Detection engineering",
+          "evidence_ref": "demo://validation/T1070"
+        }
+      ]
+    }
   },
   "degraded": {
+    "report_schema_version": "sat-sa-report-1.0",
     "scope": "Synthetic SOC A / scope-v1",
     "as_of": "2026-09-30T12:00:00+00:00",
     "synthetic": true,
@@ -631,6 +680,8 @@
         "missing_credit": 0.0
       }
     },
+    "data_classification": "SYNTHETIC DEMO DATA",
+    "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
     "score": 65.4,
     "confidence": 59.6,
     "maturity": "Provisional",
@@ -1333,7 +1384,61 @@
       "Precision is a quality proxy, not recall",
       "Confidence is an evidence index, not a statistical probability",
       "Policy weights and maturity bands require pilot calibration"
-    ]
+    ],
+    "supervisory_summary": {
+      "score": 65.4,
+      "maturity": "Provisional",
+      "confidence": 59.6,
+      "strongest_domain": {
+        "name": "Quality",
+        "score": 80.0
+      },
+      "weakest_domain": {
+        "name": "Detection",
+        "score": 47.5
+      },
+      "high_critical_findings": 8,
+      "lifecycle": {
+        "enabled": true,
+        "incident_count": 6,
+        "complete_incidents": 2,
+        "completeness_percent": 33.3
+      },
+      "drift": {
+        "status": "not_evaluated",
+        "detected": null,
+        "reasons": []
+      },
+      "top_evidence_backed_issues": [
+        {
+          "priority": "High",
+          "title": "Address escalation missing for INC-003",
+          "owner": "SOC operations",
+          "evidence_ref": "demo://lifecycle/INC-003/investigation",
+          "incident_id": "INC-003",
+          "stage": "escalation",
+          "finding_type": "missing"
+        },
+        {
+          "priority": "High",
+          "title": "Address response delayed for INC-002",
+          "owner": "SOC operations",
+          "evidence_ref": "demo://lifecycle/INC-002/response",
+          "incident_id": "INC-002",
+          "stage": "response",
+          "finding_type": "delayed"
+        },
+        {
+          "priority": "High",
+          "title": "Address response missing for INC-005",
+          "owner": "SOC operations",
+          "evidence_ref": "demo://lifecycle/INC-005/escalation",
+          "incident_id": "INC-005",
+          "stage": "response",
+          "finding_type": "missing"
+        }
+      ]
+    }
   },
   "comparison": {
     "score_delta": -18.0,

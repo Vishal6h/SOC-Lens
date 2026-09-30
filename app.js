@@ -1,4 +1,4 @@
-let demo, current, mode='baseline';
+let demo, current, currentAssessmentId, mode='baseline';
 let historyRequest=0;
 const el=id=>document.getElementById(id);
 const STAGES=['detection','investigation','escalation','response','closure'];
@@ -157,6 +157,66 @@ function summaryCard(label,value,note=''){
   card.append(add('small',label),add('strong',String(value)));
   if(note)card.append(add('span',note));
   return card;
+}
+
+function renderSupervisorSummary(report,drift=null){
+  const container=el('supervisor-summary');
+  container.replaceChildren();
+  const summary=report.supervisory_summary;
+  const driftIndicator=el('summary-drift');
+  if(!summary){
+    container.append(add('p','A structured supervisory summary is unavailable for this legacy report.','empty-inline'));
+    driftIndicator.textContent='Drift not evaluated';
+    driftIndicator.className='count-badge';
+    return;
+  }
+  const lifecycle=summary.lifecycle||{};
+  const lifecycleValue=lifecycle.enabled
+    ?(lifecycle.complete_incidents??0)+' / '+(lifecycle.incident_count??0)+' complete'
+    :'Not provided';
+  const grid=add('div','','summary-grid supervisor-grid');
+  grid.append(
+    summaryCard('Overall',number(summary.score),summary.maturity||'—'),
+    summaryCard('Confidence',number(summary.confidence)+'%'),
+    summaryCard('Strongest domain',summary.strongest_domain&&summary.strongest_domain.name||'—',number(summary.strongest_domain&&summary.strongest_domain.score)),
+    summaryCard('Weakest domain',summary.weakest_domain&&summary.weakest_domain.name||'—',number(summary.weakest_domain&&summary.weakest_domain.score)),
+    summaryCard('High / Critical findings',summary.high_critical_findings??0),
+    summaryCard('Lifecycle completeness',lifecycleValue,Number.isFinite(lifecycle.completeness_percent)?number(lifecycle.completeness_percent)+'%':'')
+  );
+  container.append(grid);
+  const driftData=drift||summary.drift||{};
+  const driftStatus=driftData.detected===true?'Drift detected':driftData.detected===false?'No drift':'Drift not evaluated';
+  driftIndicator.textContent=driftStatus;
+  driftIndicator.className='count-badge '+(driftData.detected===true?'state-warning':driftData.detected===false?'state-clear':'');
+  const issues=Array.isArray(summary.top_evidence_backed_issues)?summary.top_evidence_backed_issues:[];
+  const issueSection=add('div','','summary-issues');
+  issueSection.append(add('p','Top evidence-backed issues','trace-title'));
+  if(!issues.length){
+    issueSection.append(add('p','No evidence-backed findings are available for this summary.','empty-inline'));
+  }else{
+    for(const issue of issues){
+      const item=add('article','','summary-issue');
+      const heading=add('div','','finding-head');
+      heading.append(badge(issue.priority||'Unspecified'),add('strong',issue.title||'Untitled issue'));
+      item.append(heading);
+      if(issue.owner)item.append(add('small','Owner: '+issue.owner));
+      const ref=evidence(issue.evidence_ref);
+      if(ref)item.append(ref);
+      issueSection.append(item);
+    }
+  }
+  container.append(issueSection);
+}
+
+function renderManifest(manifest,report){
+  el('assessment-manifest').textContent=manifest
+    ?'Assessment ID '+manifest.assessment_id+' · Run '+displayTime(manifest.assessed_at)
+    :(currentAssessmentId?'Assessment ID '+currentAssessmentId:'Assessment run identifier unavailable');
+  const reportVersion=report.report_schema_version||'legacy-unversioned';
+  const databaseVersion=manifest&&manifest.database_schema_version;
+  el('schema-versions').textContent='Report schema '+reportVersion+' · Database schema '+(databaseVersion??'pending history lookup');
+  el('report-classification').textContent=report.data_classification||
+    (report.synthetic?'SYNTHETIC DATA':'Classification unavailable for legacy report');
 }
 
 function renderComponentTable(components){
@@ -509,7 +569,10 @@ async function openHistoricalAssessment(assessmentId){
   try{
     const stored=await fetchJson('/api/history/'+encodeURIComponent(assessmentId));
     mode='history';
-    render(stored.report);
+    if(!stored.report.supervisory_summary&&stored.supervisory_summary){
+      stored.report={...stored.report,supervisory_summary:stored.supervisory_summary};
+    }
+    render(stored.report,stored.assessment.assessment_id,stored.manifest);
     window.scrollTo({top:0});
     el('status').textContent='Viewing historical assessment '+assessmentId+' · '+displayTime(stored.assessment.assessed_at);
   }catch(error){
@@ -519,6 +582,7 @@ async function openHistoricalAssessment(assessmentId){
 
 async function loadHistory(scope){
   const request=++historyRequest;
+  const assessmentAtRequest=currentAssessmentId;
   const content=el('history-content'),unavailable=el('history-unavailable');
   content.hidden=true;
   unavailable.hidden=false;
@@ -530,9 +594,12 @@ async function loadHistory(scope){
   }
   try{
     const encoded=encodeURIComponent(scope);
-    const [listing,history]=await Promise.all([
+    const [listing,history,stored]=await Promise.all([
       fetchJson('/api/history?scope='+encoded),
-      fetchJson('/api/history/trend?scope='+encoded)
+      fetchJson('/api/history/trend?scope='+encoded),
+      assessmentAtRequest
+        ?fetchJson('/api/history/'+encodeURIComponent(assessmentAtRequest)).catch(()=>null)
+        :Promise.resolve(null)
     ]);
     if(request!==historyRequest)return;
     const records=Array.isArray(listing.assessments)?listing.assessments:[];
@@ -549,6 +616,11 @@ async function loadHistory(scope){
     renderTrendChart(points);
     renderHistorySelections(points);
     renderHistoryTable(records,points);
+    if(currentAssessmentId===assessmentAtRequest){
+      if(stored)renderManifest(stored.manifest,current);
+      const currentPoint=points.find(point=>point.assessment_id===assessmentAtRequest);
+      renderSupervisorSummary(current,currentPoint&&currentPoint.drift);
+    }
     if(history.excluded_incompatible){
       el('history-state').textContent+=` · ${history.excluded_incompatible} incompatible`;
     }
@@ -582,16 +654,27 @@ function renderPolicy(report){
   container.append(grid);
 }
 
-function render(report){
+function render(report,assessmentId=null,manifest=null){
   current=report;
+  currentAssessmentId=assessmentId;
   el('score').textContent=number(report.score);
   el('confidence').textContent=number(report.confidence)+'%';
   el('maturity').textContent=report.maturity||'—';
   el('gate').textContent=report.maturity==='Provisional'?'Evidence gate failed':'Policy gates satisfied';
+  el('maturity-card').classList.toggle('provisional',report.maturity==='Provisional');
   const counts=report.counts||{};
   el('count').textContent=(counts.techniques??0)+' / '+(counts.cases??0);
   el('countsub').textContent='Techniques / incident cases';
   el('status').textContent=(report.synthetic?'Synthetic dataset. ':'Imported dataset. ')+(report.scope||'Unspecified scope')+' · '+(report.as_of||'No assessment time');
+  el('data-label').textContent=report.synthetic?'SYNTHETIC EVIDENCE DEMO':'USER-SUPPLIED EVIDENCE · LOCAL';
+  el('data-label').classList.toggle('user-data',!report.synthetic);
+  el('data-notice').textContent=report.synthetic
+    ?'SYNTHETIC DEMONSTRATION DATA — not real CSE evidence and not an operational assurance claim.'
+    :'USER-SUPPLIED LOCAL EVIDENCE — verify authorization, provenance, and handling requirements.';
+  el('data-notice').classList.toggle('synthetic',report.synthetic===true);
+  el('download-audit').disabled=!assessmentId;
+  renderSupervisorSummary(report);
+  renderManifest(manifest,report);
   renderDomains(report);
   renderDomainExplanations(report);
   renderFindings(report);
@@ -612,14 +695,14 @@ async function init(){
     const response=await fetch('/api/demo');
     if(!response.ok)throw Error('Demo loading failed');
     demo=await response.json();
-    render(demo.baseline);
+    render(demo.baseline,demo.assessment_ids&&demo.assessment_ids.baseline);
   }catch(error){
     el('status').textContent=error.message;
   }
 }
 
-el('baseline').onclick=()=>{if(demo){mode='baseline';render(demo.baseline);}};
-el('degraded').onclick=()=>{if(demo){mode='degraded';render(demo.degraded);}};
+el('baseline').onclick=()=>{if(demo){mode='baseline';render(demo.baseline,demo.assessment_ids&&demo.assessment_ids.baseline);}};
+el('degraded').onclick=()=>{if(demo){mode='degraded';render(demo.degraded,demo.assessment_ids&&demo.assessment_ids.degraded);}};
 el('upload').onchange=async event=>{
   const file=event.target.files[0];
   if(!file)return;
@@ -630,7 +713,7 @@ el('upload').onchange=async event=>{
     const report=await response.json();
     if(!response.ok)throw Error(report.error);
     mode='import';
-    render(report);
+    render(report,response.headers.get('X-Assessment-ID'));
   }catch(error){
     el('status').textContent=error.message;
   }
@@ -643,6 +726,25 @@ el('download').onclick=()=>{
   link.download='sat-sa-assessment.json';
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+el('download-audit').onclick=async()=>{
+  if(!currentAssessmentId)return;
+  try{
+    const response=await fetch('/api/audit/'+encodeURIComponent(currentAssessmentId));
+    if(!response.ok){
+      const error=await response.json();
+      throw Error(error.error||'Audit package export failed');
+    }
+    const link=document.createElement('a');
+    const url=URL.createObjectURL(await response.blob());
+    link.href=url;
+    link.download='sat-sa-audit-'+currentAssessmentId+'.zip';
+    link.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    el('status').textContent='Audit package exported for assessment '+currentAssessmentId+'.';
+  }catch(error){
+    el('status').textContent=error.message;
+  }
 };
 el('history-compare').onclick=runHistoryComparison;
 

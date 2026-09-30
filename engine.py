@@ -2,7 +2,8 @@
 import hashlib
 import json
 import math
-from datetime import datetime, timezone
+from datetime import datetime
+from reporting import REPORT_SCHEMA_VERSION, supervisor_summary
 
 POLICY = {
     "id": "sat-sa-demo-2.0",
@@ -29,9 +30,24 @@ LIFECYCLE_INTERVALS = (
     ("response_to_closure", "response", "closure"),
     ("total_lifecycle", "detection", "closure"),
 )
+LIFECYCLE_KEYS = {"incident_id", "alert_id", "case_id", "source_id", "escalation_required", *LIFECYCLE_STAGES}
+LIFECYCLE_STAGE_KEYS = {"timestamp", "evidence_ref", "status"}
+
+def identifier(value, label, maximum=200):
+    if (not isinstance(value, str) or not value or value != value.strip()
+            or len(value) > maximum or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+        raise ValueError(f"{label} must be a nonempty trimmed string of at most {maximum} characters")
+    return value
+
+def evidence_reference(value, label="evidence_ref"):
+    if not isinstance(value, str) or len(value) > 500:
+        raise ValueError(f"Invalid {label}")
+    if value and (value != value.strip() or any(ord(character) < 32 or ord(character) == 127 for character in value)):
+        raise ValueError(f"Invalid {label}: nonempty references must be trimmed and contain no control characters")
+    return value
 
 def timestamp(value):
-    if not isinstance(value, str):
+    if not isinstance(value, str) or not value or len(value) > 64 or value != value.strip():
         raise ValueError("Timestamps must be ISO 8601 strings with a timezone")
     try:
         dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -52,8 +68,7 @@ def validate(data):
     for key in ("scope", "as_of", "synthetic", "sources", "techniques", "cases", "controls"):
         if key not in data:
             raise ValueError(f"Missing field: {key}")
-    if not isinstance(data["scope"], str) or not data["scope"].strip() or len(data["scope"]) > 100:
-        raise ValueError("Scope must be a nonempty string of at most 100 characters")
+    identifier(data["scope"], "Scope", 100)
     if not isinstance(data["synthetic"], bool):
         raise ValueError("synthetic must be a boolean")
     now = timestamp(data["as_of"])
@@ -63,13 +78,13 @@ def validate(data):
         if not isinstance(rows, list) or len(rows) > 10000:
             raise ValueError(f"{key} must be an array with at most 10,000 rows")
         for row in rows:
-            if not isinstance(row, dict) or not isinstance(row.get("id"), str) or not row["id"]:
-                raise ValueError("Each row requires a string id")
+            if not isinstance(row, dict):
+                raise ValueError(f"Each {key} row must be an object")
+            identifier(row.get("id"), f"{key} id")
             if row["id"] in ids:
                 raise ValueError("Row IDs must be globally unique")
             ids.add(row["id"])
-            if not isinstance(row.get("evidence_ref", ""), str) or len(row.get("evidence_ref", "")) > 500:
-                raise ValueError("Invalid evidence_ref")
+            evidence_reference(row.get("evidence_ref", ""))
     for s in data["sources"]:
         if s.get("kind") not in KINDS:
             raise ValueError("Unknown source kind")
@@ -109,10 +124,11 @@ def validate(data):
         for lifecycle in lifecycles:
             if not isinstance(lifecycle, dict):
                 raise ValueError("Each lifecycle must be an object")
+            unknown = set(lifecycle) - LIFECYCLE_KEYS
+            if unknown:
+                raise ValueError("Unknown lifecycle field(s): " + ", ".join(sorted(unknown)))
             for key in ("incident_id", "alert_id", "case_id", "source_id"):
-                value = lifecycle.get(key)
-                if not isinstance(value, str) or not value or len(value) > 200:
-                    raise ValueError(f"Lifecycle {key} must be a nonempty string of at most 200 characters")
+                identifier(lifecycle.get(key), f"Lifecycle {key}")
             if lifecycle["source_id"] not in source_ids:
                 raise ValueError("Unknown lifecycle source_id")
             if lifecycle["case_id"] not in cases_by_id:
@@ -133,18 +149,19 @@ def validate(data):
                     continue
                 if not isinstance(stage, dict):
                     raise ValueError(f"Lifecycle {stage_name} stage must be an object or null")
+                unknown_stage_fields = set(stage) - LIFECYCLE_STAGE_KEYS
+                if unknown_stage_fields:
+                    raise ValueError(f"Unknown lifecycle {stage_name} field(s): " + ", ".join(sorted(unknown_stage_fields)))
                 occurred = timestamp(stage.get("timestamp"))
                 if occurred > now:
                     raise ValueError("Future lifecycle timestamps are invalid")
                 if previous is not None and occurred < previous:
                     raise ValueError("Lifecycle stage timestamps must be chronological")
                 previous = occurred
-                evidence_ref = stage.get("evidence_ref", "")
-                if not isinstance(evidence_ref, str) or len(evidence_ref) > 500:
-                    raise ValueError("Invalid lifecycle evidence_ref")
+                evidence_reference(stage.get("evidence_ref", ""), "lifecycle evidence_ref")
                 status = stage.get("status")
-                if status is not None and (not isinstance(status, str) or not status or len(status) > 100):
-                    raise ValueError("Lifecycle status must be a nonempty string of at most 100 characters")
+                if status is not None:
+                    identifier(status, "Lifecycle status", 100)
             linked_case = cases_by_id[lifecycle["case_id"]]
             if timestamp(lifecycle["detection"]["timestamp"]) != timestamp(linked_case["detected_at"]):
                 raise ValueError("Lifecycle detection timestamp must match linked case detected_at")
@@ -336,12 +353,10 @@ def assess(data):
         if not valid:
             findings.append({"priority": "High" if t["risk_weight"] >= 4 else "Medium", "title": f"Validate {t['id']}", "reason": "Failed, untested, stale or unlinked test evidence", "evidence_ref": t.get("evidence_ref", ""), "owner": "Detection engineering"})
     eligible = [c for c in cases if c["disposition"] != "false_positive"]
-    durations = []
     on_time = 0
     for c in eligible:
         if c.get("contained_at"):
             minutes = (timestamp(c["contained_at"]) - timestamp(c["detected_at"])).total_seconds() / 60
-            durations.append(minutes)
             on_time += int(minutes <= c["sla_minutes"] and bool(c.get("evidence_ref")))
     reviewed = [c for c in cases if c["disposition"] != "unreviewed"]
     tp = sum(c["disposition"] == "true_positive" for c in reviewed)
@@ -400,8 +415,11 @@ def assess(data):
     if lifecycle["enabled"]:
         scope_contract["lifecycles"] = [(i["incident_id"], i["alert_id"], i["case_id"], i["source_id"], i["escalation_required"]) for i in normalized["incidents"]]
     scope_hash = hashlib.sha256(json.dumps(scope_contract, sort_keys=True).encode()).hexdigest()
-    return {
+    report = {
+        "report_schema_version": REPORT_SCHEMA_VERSION,
         "scope": data["scope"], "as_of": data["as_of"], "synthetic": data["synthetic"], "policy": POLICY,
+        "data_classification": "SYNTHETIC DEMO DATA" if data["synthetic"] else "USER-SUPPLIED ASSESSMENT EVIDENCE",
+        "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
         "score": round(score, 1), "confidence": round(confidence, 1), "maturity": "Provisional" if provisional else f"L{level}",
         "domains": {k: round(v, 1) for k, v in domain.items()},
         "confidence_factors": {"completeness": round(completeness, 3), "freshness": round(fresh, 3), "traceability": round(traceability, 3)},
@@ -410,6 +428,8 @@ def assess(data):
         "findings": sorted(findings, key=lambda f: f["priority"]), "sha256": hashlib.sha256(payload).hexdigest(), "scope_sha256": scope_hash,
         "limitations": ["Declared scope and references require assessor review", "Synthetic demo is not operational effectiveness evidence", "Precision is a quality proxy, not recall", "Confidence is an evidence index, not a statistical probability", "Policy weights and maturity bands require pilot calibration"],
     }
+    report["supervisory_summary"] = supervisor_summary(report)
+    return report
 
 def compare(before, after):
     if before["scope"] != after["scope"] or before["scope_sha256"] != after["scope_sha256"] or before["policy"]["id"] != after["policy"]["id"]:

@@ -9,7 +9,7 @@
 <body>
   <header>
     <div class="brand">SAT-SA <span>SUPERVISORY CONSOLE</span></div>
-    <div class="demo">SYNTHETIC EVIDENCE DEMO</div>
+    <div id="data-label" class="demo">LOADING DATA CLASSIFICATION</div>
   </header>
   <main>
     <div class="intro">
@@ -23,16 +23,26 @@
         <button id="degraded">Degraded execution</button>
         <label class="upload">Import JSON<input type="file" id="upload" accept="application/json,.json" aria-label="Import assessment JSON"></label>
         <button id="download">Export report</button>
+        <button id="download-audit" disabled>Export audit package</button>
       </div>
     </div>
 
     <p id="status" role="status"></p>
+    <p id="data-notice" class="data-notice" role="note"></p>
 
     <section class="metrics" aria-label="Assessment summary">
       <article><label>ASSESSMENT SCORE</label><strong id="score"></strong><small>Weighted policy score / 100</small></article>
       <article><label>EVIDENCE CONFIDENCE</label><strong id="confidence"></strong><small>Completeness × freshness × linkage</small></article>
-      <article><label>MATURITY GATE</label><strong id="maturity"></strong><small id="gate"></small></article>
+      <article id="maturity-card"><label>MATURITY GATE</label><strong id="maturity"></strong><small id="gate"></small></article>
       <article><label>ASSESSED EVIDENCE</label><strong id="count"></strong><small id="countsub"></small></article>
+    </section>
+
+    <section class="panel wide-panel supervisor-panel">
+      <div class="section-heading">
+        <div><p class="eyebrow">ASSESSMENT</p><h2>Supervisory summary</h2></div>
+        <span id="summary-drift" class="count-badge"></span>
+      </div>
+      <div id="supervisor-summary"></div>
     </section>
 
     <section class="workspace">
@@ -128,6 +138,9 @@
       <div class="panel">
         <h2>Reproducible evidence chain</h2>
         <p id="scope"></p>
+        <p id="assessment-manifest"></p>
+        <p id="schema-versions"></p>
+        <p id="report-classification"></p>
         <code id="hash"></code>
       </div>
       <div class="panel">

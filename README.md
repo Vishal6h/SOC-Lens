@@ -1,122 +1,159 @@
-# SAT-SA local demonstrator
+# SAT-SA supervisory analytics demonstrator
 
-A reproducible medium-scope project supporting the SIH 2026 SAT-SA presentation. All supplied records are synthetic. No claims of deployment, certification, detection accuracy or operational savings follow from this demo.
+SAT-SA (Supervisory Analytics Tool for SOC Assessment) is a local, deterministic prototype for assessing how effectively a Security Operations Center executes detection, investigation, escalation, response, closure, telemetry, governance, and evidence discipline. It converts declared operational evidence into explainable supervisory scores, findings, lifecycle evaluations, and historical comparisons.
 
-## Run
+SAT-SA is **not** a SIEM, SOC, real-time monitor, certification engine, evidence repository, peer benchmark, or production security platform. It does not collect events, operate controls, retrieve referenced evidence, predict performance, or use AI/ML. Scores and references require assessor review.
 
-Python 3.10 or newer. No external Python packages or API keys are required.
+All bundled datasets and history records are synthetic. They are labelled `SYNTHETIC DEMO DATA` in reports, manifests, audit packages, and the dashboard.
 
-```text
-python server.py
-```
+## Run locally
 
-Open http://127.0.0.1:8765. Compare Baseline with Degraded execution, import a JSON file following `data/baseline.json`, and export the resulting evidence report. Assessments persist locally in `assessments.sqlite3`. Keep that database private. The demo binds only to localhost.
+Requirements: Python 3.10 or newer. No packages, API keys, network services, build tools, or internet connection are required.
 
 ```text
-python -m unittest -v
-python make_demo.py
+python3 server.py
 ```
 
-## Implemented
+Open `http://127.0.0.1:8765`. The server binds only to localhost. Do not expose this demonstrator to a network.
 
-- Bounded JSON import with range, timestamp, identifier and reference validation.
-- Five source categories: SIEM, EDR, SOAR, UEBA, CTI. These are declared JSON adapters, not live vendor integrations.
-- Optional canonical incident lifecycles linking a source, alert, case and incident through detection, investigation, escalation, response and closure.
-- Deterministic domain scores, missing-evidence penalties, maturity gates, and scope-locked scenario comparison.
-- Prioritized findings, evidence references, canonical input SHA-256, versioned scoring policy and SQLite assessment history.
-- Interactive browser console and JSON report export. The digest identifies input content; it does not attest source authenticity or make the database immutable.
+To run all tests and validate the frontend source:
 
-## Optional lifecycle evidence
+```text
+python3 -B -m unittest discover -s . -v
+node --check app.js
+git diff --check
+```
 
-Inputs may include a `lifecycles` array. Each row requires unique `incident_id`, `alert_id` and `case_id` correlations, a valid `source_id`, and a detection stage. Investigation, escalation, response and closure stages are optional objects with a timezone-aware `timestamp`, optional `evidence_ref`, and optional status. `escalation_required` defaults to false.
+To regenerate canonical synthetic fixtures:
 
-Lifecycle detection must identify the same instant as the linked case `detected_at`. When both a lifecycle response and case `contained_at` exist, response cannot follow containment; a response whose status is `contained` must identify exactly the same instant as `contained_at`. This permits an earlier initial-response event without allowing contradictory containment evidence.
+```text
+python3 -B make_demo.py
+```
 
-Lifecycle-enabled reports expose normalized incidents, missing-stage and delayed-stage findings, per-incident timing and stage evaluations, aggregate timing metrics, component scores, and domain-impact calculations. Inputs without `lifecycles` retain the legacy assessment behavior.
+## Architecture
 
-## Lifecycle scoring policy
+- `engine.py` validates and normalizes evidence, correlates lifecycles, calculates scores/confidence/maturity, and emits findings.
+- `assessment_history.py` owns SQLite schema version 2, migration, history, compatibility, trend, and drift logic.
+- `reporting.py` creates deterministic supervisory summaries, manifests, and audit ZIP packages.
+- `server.py` provides the localhost static server and bounded JSON/history/audit APIs.
+- `index.html`, `app.js`, and `style.css` provide a dependency-free dashboard.
+- `make_demo.py` recreates deterministic synthetic evidence and history fixtures under `data/`.
 
-The versioned `sat-sa-demo-2.0` policy uses these prototype targets:
+The evidence flow is:
 
-| Requirement | Measured interval | Target |
-| --- | --- | ---: |
-| Investigation | Detection to investigation | 15 minutes |
-| Required escalation | Investigation to escalation | 15 minutes |
-| Response / containment | Detection to response | 60 minutes |
-| Closure / recovery | Response to closure | 240 minutes |
+```text
+SOC evidence JSON
+→ strict validation
+→ legacy/lifecycle normalization
+→ incident correlation
+→ detection / investigation / escalation / response / closure evaluation
+→ negative-space findings
+→ five-domain scoring
+→ confidence and maturity gates
+→ persisted assessment run
+→ evidence drill-down / history / trend / audit package
+```
 
-Each applicable requirement receives 1 credit when present and within target, 0.5 when present but delayed, and 0 when missing. A later stage that is present but cannot be timed because its prerequisite is missing receives 0.5 credit. Escalation is excluded when `escalation_required` is false. Threshold equality is timely.
+No backend score is recalculated in JavaScript.
 
-For lifecycle-enabled inputs containing incidents, Response pools the existing legacy containment-SLA credits with investigation, applicable escalation, and lifecycle response credits. Quality pools the existing reviewed-case true-positive credits with closure-discipline credits. Each evidence obligation has equal weight inside its domain; the five overall domain weights do not change. The report exposes every requirement count, credit, sub-score, and resulting domain effect.
+## Evidence contract
 
-Confidence remains an evidence-quality measure rather than a performance score. Missing or delayed stages do not directly lower confidence. Present lifecycle stages join the traceability calculation, so a present stage without an evidence reference can lower confidence. Lifecycle performance introduces no new maturity gate; score changes flow through the existing maturity bands and gates.
+Use `data/baseline.json` as the canonical input example. Required top-level fields are `scope`, `as_of`, `synthetic`, `sources`, `techniques`, `cases`, and `controls`; `lifecycles` is optional. Inputs are bounded to 2 MB at HTTP ingestion and collection sizes are bounded in the engine.
 
-## Dashboard evidence drill-down
+Validation rejects malformed types, non-finite or out-of-range numbers, duplicate or whitespace-padded identifiers, unsupported source kinds, timestamps without timezones, future/impossible timestamps, invalid links, oversized/control-containing references, unknown lifecycle fields, unknown lifecycle stage attributes, and contradictory case/lifecycle timestamps. Invalid evidence is rejected rather than repaired.
 
-The dashboard presents the report as a score-to-evidence path: overall score, affected Response or Quality domain, lifecycle component, correlated incident, evaluated stage, and related finding or evidence reference. It displays values already calculated by the assessment engine and does not reproduce scoring policy in JavaScript.
+The canonical lifecycle links stable `incident_id`, `alert_id`, `case_id`, and `source_id` values through:
 
-All findings are shown. Optional trace fields—including owner, incident, alert, case, lifecycle stage, finding type, observed delay, policy threshold, and evidence reference—appear only when the report supplies them. Evidence references are displayed exactly as identifiers for copying and human verification. In particular, `demo://` references are not hyperlinks, and the application does not retrieve or fabricate evidence content.
+```text
+detection → investigation → escalation → response → closure
+```
 
-For lifecycle-enabled assessments, the dashboard includes:
+Each present stage has a timestamp and may include status and an opaque `evidence_ref`. Detection must match the linked case's `detected_at`. A contained lifecycle response must match the linked case's `contained_at`; an earlier initial-response event is allowed. Escalation is required only when `escalation_required` is true. Inputs without `lifecycles` retain the legacy calculation path.
 
-- final, legacy, lifecycle, and lifecycle-effect values for the Response and Quality domains;
-- investigation, escalation, response, and closure requirement counts and scores;
-- operational-response and closure-discipline sub-scores;
-- complete and incomplete incident counts plus aggregate lifecycle timing averages;
-- expandable incident records containing correlation IDs, stage timestamps and status, timing results, policy targets, earned credit, and evidence references; and
-- the active policy version and its prototype supervisory lifecycle thresholds.
+Evidence references are identifiers for human verification. SAT-SA does not open `demo://` references, access external systems, or fabricate evidence content.
 
-Timely, delayed, missing, unmeasured, and not-required outcomes are visibly distinguished. For legacy reports without lifecycle evidence, lifecycle drill-down is replaced with an explicit unavailable message; existing score cards, domain values, confidence factors, findings, provenance, import, and export remain available.
+## Scoring, confidence, and maturity
 
-## Assessment history and trends
+Scoring policy `sat-sa-demo-2.0` retains five domains:
 
-SQLite schema version 2 stores each assessment run under an independent `assessment_id`. The input digest remains an integrity identifier but is no longer a primary key, so the same evidence can be intentionally assessed and retained more than once. Each row records the scope, run time, evidence `as_of`, policy version, input and scope digests, overall score, confidence, maturity, all five domain scores, lifecycle mode, origin, and serialized evidence/report. Storage remains local in `assessments.sqlite3`; no history data leaves the application.
+```text
+Overall = 30% Detection + 25% Response + 20% Telemetry
+        + 15% Quality + 10% Governance
+```
 
-On first use, the original SHA-keyed `assessments` table is renamed to `assessments_legacy_v1`, a version-2 table is created, and legacy rows are copied with stable `legacy-<sha256>` assessment IDs. Because the old schema did not record a run time, migrated rows use evidence `as_of` as the best available timestamp. The backup table is retained, inserts are idempotent, and `PRAGMA user_version` records schema version 2. Repeated startup neither deletes nor duplicates migrated records. New databases initialize directly at version 2.
+- Detection is risk-weighted validated technique coverage.
+- Response pools eligible legacy containment-SLA obligations with lifecycle investigation, required-escalation, and response obligations.
+- Telemetry is weighted completeness multiplied by source freshness.
+- Quality pools reviewed-case precision with lifecycle closure discipline.
+- Governance is the proportion of applicable controls satisfied with evidence references.
 
-Local read-only history routes are:
+Lifecycle prototype targets are 15 minutes for investigation, 15 minutes for required escalation, 60 minutes from detection to response, and 240 minutes from response to closure. Timely stages earn 1 credit, delayed or present-but-unmeasurable stages earn 0.5, and missing stages earn 0. Escalation that is not required is excluded. These are prototype supervisory thresholds, not universal SOC service levels.
 
-- `GET /api/history?scope=<scope>` — newest-first assessment summaries;
-- `GET /api/history/<assessment_id>` — one stored report and its metadata, without returning raw evidence;
-- `GET /api/history/compare?before=<id>&after=<id>` — deterministic deltas and drift analysis; and
-- `GET /api/history/trend?scope=<scope>` — chronological points and latest-cohort trend metrics.
+Confidence is an evidence-quality index: completeness × freshness × traceability. Poor operational performance does not directly lower confidence, but missing references can. It is not a statistical probability.
 
-A direct comparison requires the same policy version, `scope_sha256`, and scope identifier. Incompatible comparisons return HTTP 409 with the reason instead of a delta. A trend uses the newest assessment's policy/scope-hash compatibility cohort and reports how many older rows were excluded. It exposes overall score, confidence, and all five domains, each point's previous-assessment delta, best and worst score, and a deterministic improved/declined/unchanged streak. It performs no forecasting.
+Maturity bands are L1 below 40, L2 from 40–59.9, L3 from 60–79.9, and L4 from 80. Confidence below 70, fewer than 10 reviewed cases, or an empty evidence domain makes maturity Provisional. Critical governance gaps cap maturity at L2. L4 also requires Detection of at least 75 and no unvalidated risk-weight-4/5 technique.
 
-Persisted-history drift is explainable and deterministic. It triggers when the overall score declines by at least 10 points, confidence is below the policy floor, any domain declines by at least 10 points, a new High/Critical finding appears, or an identifiable lifecycle gap that existed before the immediately preceding assessment reappears. The existing assessment scoring, confidence, maturity, findings, and `sat-sa-demo-2.0` policy are unchanged.
+## Explainability and dashboard
 
-The dashboard lists all stored runs for the active scope, displays compatible trend and latest-delta summaries, permits two compatible runs to be compared, and can reopen a stored report. Its SVG line shows observed overall scores only. Three fixed synthetic runs—healthy, degraded, and current healthy—are seeded once for the demonstration; their stable IDs prevent refresh-driven duplication.
+The dashboard separates Assessment, Evidence, Findings, Lifecycle, History, and Policy/provenance. It exposes:
 
-## Scoring contract
+- a deterministic supervisory summary with strongest/weakest domain, High/Critical finding count, lifecycle completeness, drift status, and up to three evidence-backed issues;
+- every finding and its available owner, correlation IDs, stage, observed delay, threshold, and evidence reference;
+- Response/Quality legacy and lifecycle components and domain effects;
+- per-stage lifecycle result, timestamp, status, delay, threshold, credit, and evidence reference;
+- lifecycle counts and timing averages; and
+- active policy and prototype thresholds.
 
-Each domain is 0–100. Overall score = .30 Detection + .25 Response + .20 Telemetry + .15 Quality + .10 Governance.
+Synthetic and user-supplied evidence are labelled distinctly. Provisional maturity receives a visible warning state. Legacy reports without lifecycle evidence remain usable and show a clear lifecycle-empty state.
 
-Detection = risk weight of passed tests with linked evidence and age at most 30 days / all in-scope technique risk weight. In-scope untested or stale tests receive no credit. Weights 1–5 represent the supervisor's declared threat relevance and asset impact; they are not inferred automatically.
+## History, trend, and drift
 
-Legacy Response = linked, contained cases within their SLA / all cases except reviewed false positives. Open and unreviewed cases remain in the denominator. For lifecycle-enabled inputs, the final Response domain pools those legacy credits with lifecycle investigation, required-escalation and response credits as described above.
+SQLite schema version 2 gives every run an independent `assessment_id`; `input_sha256` is an indexed integrity identifier, not a unique key. Reassessing identical evidence can therefore create a separate observation. A row stores run/evidence timestamps, scope, policy and scope hashes, score, confidence, maturity, all domains, lifecycle mode, origin, and serialized evidence/report.
 
-Telemetry = weighted average of completeness times freshness. Freshness is 1 through 24 hours, then decays linearly to 0 at 96 hours. These are demo policy choices, not general recommendations for all CTI or telemetry cadences.
+The original SHA-keyed table migrates transactionally to `assessments_legacy_v1`, which is retained as a backup. Migrated rows use evidence `as_of` as their best available run time. Startup is idempotent. A database whose `PRAGMA user_version` is newer than supported version 2 is rejected without downgrade.
 
-Legacy Quality = true positives / reviewed cases. This is precision only and does not estimate false negatives or recall. For lifecycle-enabled inputs, the final Quality domain pools those credits with closure-discipline credits. A low-sample gate still prevents fewer than 10 reviewed cases from receiving a maturity rating.
+Read-only local routes are:
 
-Governance = evidenced satisfied controls / applicable controls. Evidence references require human verification.
+- `GET /api/history?scope=<scope>`
+- `GET /api/history/<assessment_id>`
+- `GET /api/history/compare?before=<id>&after=<id>`
+- `GET /api/history/trend?scope=<scope>`
 
-Confidence = 100 × completeness × freshness × traceability. Completeness is the mean of source completeness, case review fraction and technique test fraction. Freshness is the unweighted mean source freshness. Traceability is the fraction of legacy evidence rows and present lifecycle stages with a reference. This is an evidence-quality index, not a confidence interval or calibrated probability.
+Comparisons require the same policy version, scope identifier, and `scope_sha256`; incompatible requests return HTTP 409 instead of deltas. Trends expose chronological overall/confidence/domain observations, previous deltas, best/worst score, deterministic direction/streak, and excluded incompatible rows. The SVG chart shows observed overall scores only and implies no forecast.
 
-Bands: L1 <40, L2 40–<60, L3 60–<80, L4 >=80. Confidence below 70, fewer than 10 reviewed cases, or an empty evidence domain makes the rating Provisional. Missing critical governance controls cap the rating at L2. L4 additionally requires Detection >=75 and no unvalidated technique with risk weight >=4. These are proposed SAT-SA gates, not NIST CSF implementation tiers.
+Historical drift triggers on an overall decline of at least 10 points, confidence below the policy floor, a domain decline of at least 10 points, a new High/Critical finding, or an identifiable lifecycle gap reappearing after resolution.
 
-Drift alert: overall score drops by at least 10 points or confidence is below 70. This is a deterministic threshold, not machine learning. Scenario comparison requires matching scope, policy, sources, technique weights, critical controls and, when supplied, lifecycle correlations.
+## Manifest and audit package
 
-## Pilot and production work still required
+Every persisted assessment exposes a manifest through its history response. The manifest distinguishes:
 
-Live authenticated connectors; OCSF mappings; STIX/TAXII ingestion; deduplication and pagination; configurable source-specific freshness budgets; peer-group calibration; case-mix adjustment; temporal persistence of scope; RBAC/SSO; encryption and protected evidence retention; external tamper-evident storage; adversary emulation; sensitivity analysis; independent assessor agreement and measured operating costs. Do not expose this demo server to a network.
+- scoring policy version: rules and thresholds producing the score;
+- report schema version: `sat-sa-report-1.0`, the JSON report contract;
+- database schema version: currently `2`, the SQLite storage layout;
+- manifest/audit package versions: local export contracts.
 
-## References
+The dashboard's **Export audit package** control downloads a deterministic ZIP from `GET /api/audit/<assessment_id>`. It contains:
 
-- NIST SP 800-61 Rev. 3: https://csrc.nist.gov/pubs/sp/800/61/r3/final
-- MITRE ATT&CK assessment and engineering: https://attack.mitre.org/resources/get-started/assessment-and-engineering/
-- MITRE ATT&CK data: https://attack.mitre.org/resources/working-with-attack/
-- Open Cybersecurity Schema Framework: https://schema.ocsf.io/
-- CISA logging guidance: https://www.cisa.gov/audiences/small-and-medium-businesses/secure-your-business/use-logging-on-business-systems
+- `manifest.json`
+- `report.json`
+- `findings.json`
+- `lifecycle-summary.json`
+- `supervisory-summary.json`
 
-No traffic leaves the local browser/server in the provided demo. The UI loads no third-party resources.
+The manifest records artifact SHA-256 values and sizes. ZIP timestamps and ordering are fixed, so the same stored assessment and historical context produce identical bytes. Raw submitted evidence and external evidence files are deliberately excluded.
+
+The existing **Export report** control remains available for plain report JSON.
+
+## Synthetic demonstration
+
+`data/baseline.json`, `data/degraded.json`, and all records in `data/demo-history.json` are synthetic. The fixed history shows healthy (83.4), degraded (65.4), and current healthy (83.4) observations. Stable demo IDs prevent page refreshes from creating duplicate history. `demo://` values are labels only.
+
+## Offline operation and handling
+
+Browser assets are local and the Content Security Policy permits only same-origin resources. Static paths are allow-listed, uploads are size/content-type bounded, unsupported methods return JSON errors, and API exceptions are converted to bounded responses. SQLite and exported reports may contain sensitive operational metadata; keep them on an authorized workstation and protect them appropriately.
+
+## Current limitations
+
+This prototype has no live connectors, vendor adapters, multi-alert incidents, peer/CSE benchmarking, fleet/national aggregation, RBAC/SSO, encryption at rest, protected retention, external evidence retrieval, tamper-evident remote storage, forecasting, ML anomaly detection, or AI/LLM capability. It does not estimate false-negative recall without controlled validation evidence. The 500-point trend cap, fixed prototype thresholds, synthetic demo, and assessor-supplied scope require pilot calibration and independent validation before operational use.
+
+Useful standards references include NIST SP 800-61 Rev. 3, MITRE ATT&CK assessment and engineering guidance, OCSF, and CISA logging guidance.
