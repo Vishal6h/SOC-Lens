@@ -48,8 +48,15 @@ degraded['techniques'][3]['status']='failed'
 first_detection=datetime.fromisoformat(degraded['lifecycles'][0]['detection']['timestamp'])
 degraded['lifecycles'][0]['investigation']['timestamp']=iso(first_detection+timedelta(minutes=25))
 degraded['lifecycles'][0]['escalation']['timestamp']=iso(first_detection+timedelta(minutes=27))
+degraded['lifecycles'][0]['closure']['timestamp']=iso(first_detection+timedelta(minutes=300))
+second_detection=datetime.fromisoformat(degraded['lifecycles'][1]['detection']['timestamp'])
+degraded['cases'][1]['sla_minutes']=90
+degraded['cases'][1]['contained_at']=iso(second_detection+timedelta(minutes=75))
+degraded['lifecycles'][1]['response']['timestamp']=iso(second_detection+timedelta(minutes=75))
 degraded['lifecycles'][2]['escalation']=None
 degraded['lifecycles'][3]['closure']=None
+fifth_detection=datetime.fromisoformat(degraded['lifecycles'][4]['detection']['timestamp'])
+degraded['lifecycles'][4]['escalation']['timestamp']=iso(fifth_detection+timedelta(minutes=25))
 degraded['lifecycles'][4]['response']=None
 degraded['lifecycles'][5]['investigation']=None
 (ROOT/'data').mkdir(exist_ok=True)

@@ -201,4 +201,153 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(report['sha256'],'1823b55bc5698ea3632221dc476fb456f0764b56147ee7bf065f29f2a46cfd58')
         self.assertEqual((report['lifecycle']['enabled'],report['lifecycle']['incident_count']),(False,0))
 
+class LifecycleScoringTests(unittest.TestCase):
+    def setUp(self):
+        self.data=json.loads((Path(__file__).parent/'data/baseline.json').read_text())
+
+    def test_complete_timely_lifecycle_receives_full_credit(self):
+        scoring=assess(self.data)['lifecycle']['scoring']
+        self.assertEqual(scoring['operational_response']['score'],100.0)
+        self.assertEqual(scoring['closure_discipline']['score'],100.0)
+        self.assertTrue(all(component['score']==100.0 for component in scoring['components'].values()))
+
+    def test_delayed_investigation_reduces_response(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['investigation']['timestamp']='2026-09-28T12:16:00+00:00'
+        self.data['lifecycles'][0]['escalation']['timestamp']='2026-09-28T12:20:00+00:00'
+        after=assess(self.data)
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['investigation']['delayed'],1)
+
+    def test_missing_investigation_reduces_response(self):
+        before=assess(self.data)
+        self.data['lifecycles'][1]['investigation']=None
+        after=assess(self.data)
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['investigation']['missing'],1)
+
+    def test_missing_required_escalation_reduces_response(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['escalation']=None
+        after=assess(self.data)
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['escalation']['missing'],1)
+
+    def test_escalation_not_required_does_not_penalize(self):
+        before=assess(self.data)
+        self.assertEqual(before['lifecycle']['scoring']['components']['escalation']['not_applicable'],3)
+        self.data['lifecycles'][1]['escalation']={
+            'timestamp':'2026-09-28T11:10:00+00:00',
+            'evidence_ref':'demo://lifecycle/INC-002/escalation',
+            'status':'recorded',
+        }
+        after=assess(self.data)
+        self.assertEqual(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['escalation']['applicable'],3)
+
+    def test_delayed_escalation_reduces_response(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['escalation']['timestamp']='2026-09-28T12:21:00+00:00'
+        after=assess(self.data)
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['escalation']['delayed'],1)
+
+    def test_missing_response_reduces_response(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['response']=None
+        after=assess(self.data)
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['response']['missing'],1)
+
+    def test_delayed_response_reduces_response_and_is_explainable(self):
+        before=assess(self.data)
+        self.data['cases'][0]['sla_minutes']=90
+        self.data['cases'][0]['contained_at']='2026-09-28T13:15:00+00:00'
+        self.data['lifecycles'][0]['response']['timestamp']='2026-09-28T13:15:00+00:00'
+        after=assess(self.data)
+        finding=[f for f in after['findings'] if f.get('incident_id')=='INC-001' and f.get('stage')=='response'][0]
+        self.assertLess(after['domains']['Response'],before['domains']['Response'])
+        self.assertEqual((finding['finding_type'],finding['observed_minutes'],finding['policy_threshold_minutes']),('delayed',75.0,60))
+
+    def test_missing_closure_reduces_quality(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['closure']=None
+        after=assess(self.data)
+        self.assertEqual(after['domains']['Response'],before['domains']['Response'])
+        self.assertLess(after['domains']['Quality'],before['domains']['Quality'])
+        self.assertEqual(after['lifecycle']['scoring']['components']['closure']['missing'],1)
+
+    def test_delayed_closure_reduces_quality_and_is_explainable(self):
+        before=assess(self.data)
+        self.data['lifecycles'][0]['closure']['timestamp']='2026-09-28T16:31:00+00:00'
+        after=assess(self.data)
+        finding=[f for f in after['findings'] if f.get('incident_id')=='INC-001' and f.get('stage')=='closure'][0]
+        self.assertLess(after['domains']['Quality'],before['domains']['Quality'])
+        self.assertEqual((finding['finding_type'],finding['observed_minutes'],finding['policy_threshold_minutes']),('delayed',241.0,240))
+
+    def test_lifecycle_timing_boundaries(self):
+        cases=[]
+        investigation=copy.deepcopy(self.data)
+        investigation['lifecycles'][0]['investigation']['timestamp']='2026-09-28T12:15:00+00:00'
+        investigation['lifecycles'][0]['escalation']['timestamp']='2026-09-28T12:20:00+00:00'
+        cases.append((investigation,'investigation','timely'))
+        escalation=copy.deepcopy(self.data)
+        escalation['lifecycles'][0]['escalation']['timestamp']='2026-09-28T12:20:00+00:00'
+        cases.append((escalation,'escalation','timely'))
+        response=copy.deepcopy(self.data)
+        response['cases'][0]['contained_at']='2026-09-28T13:00:00+00:00'
+        response['lifecycles'][0]['response']['timestamp']='2026-09-28T13:00:00+00:00'
+        cases.append((response,'response','timely'))
+        closure=copy.deepcopy(self.data)
+        closure['lifecycles'][0]['closure']['timestamp']='2026-09-28T16:30:00+00:00'
+        cases.append((closure,'closure','timely'))
+        response_late=copy.deepcopy(response)
+        response_late['cases'][0]['contained_at']='2026-09-28T13:01:00+00:00'
+        response_late['lifecycles'][0]['response']['timestamp']='2026-09-28T13:01:00+00:00'
+        cases.append((response_late,'response','delayed'))
+        closure_late=copy.deepcopy(self.data)
+        closure_late['lifecycles'][0]['closure']['timestamp']='2026-09-28T16:31:00+00:00'
+        cases.append((closure_late,'closure','delayed'))
+        for data,stage,expected in cases:
+            with self.subTest(stage=stage,expected=expected):
+                evaluation=assess(data)['lifecycle']['incidents'][0]['stage_evaluation'][stage]
+                self.assertEqual(evaluation['result'],expected)
+
+    def test_lifecycle_scoring_explanation_is_consistent(self):
+        report=assess(self.data)
+        scoring=report['lifecycle']['scoring']
+        components=scoring['components']
+        for component in components.values():
+            self.assertEqual(component['applicable'],component['timely']+component['delayed']+component['missing']+component['unmeasured'])
+        operational=scoring['operational_response']
+        self.assertEqual(operational['applicable'],sum(components[name]['applicable'] for name in ('investigation','escalation','response')))
+        self.assertEqual(operational['credits'],sum(components[name]['credits'] for name in ('investigation','escalation','response')))
+        for domain in ('Response','Quality'):
+            impact=scoring['domain_impact'][domain]
+            calculated=100*(impact['legacy_credits']+impact['lifecycle_credits'])/(impact['legacy_requirements']+impact['lifecycle_requirements'])
+            self.assertEqual(impact['combined_score'],round(calculated,1))
+            self.assertEqual(impact['combined_score'],report['domains'][domain])
+
+    def test_degraded_demo_loses_score_from_lifecycle_failures(self):
+        degraded=json.loads((Path(__file__).parent/'data/degraded.json').read_text())
+        full=assess(degraded)
+        legacy=copy.deepcopy(degraded)
+        legacy.pop('lifecycles')
+        legacy_report=assess(legacy)
+        self.assertLess(full['domains']['Response'],legacy_report['domains']['Response'])
+        self.assertLess(full['domains']['Quality'],legacy_report['domains']['Quality'])
+        self.assertLess(full['score'],legacy_report['score'])
+
+    def test_confidence_distinguishes_traceability_from_performance(self):
+        before=assess(self.data)
+        poor_performance=copy.deepcopy(self.data)
+        poor_performance['lifecycles'][1]['investigation']=None
+        poor_performance['lifecycles'][1]['closure']=None
+        poor=assess(poor_performance)
+        self.assertLess(poor['score'],before['score'])
+        self.assertEqual(poor['confidence'],before['confidence'])
+        untraceable=copy.deepcopy(self.data)
+        untraceable['lifecycles'][0]['investigation']['evidence_ref']=''
+        self.assertLess(assess(untraceable)['confidence'],before['confidence'])
+
 if __name__=='__main__':unittest.main()

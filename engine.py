@@ -4,7 +4,22 @@ import json
 import math
 from datetime import datetime, timezone
 
-POLICY = {"id": "sat-sa-demo-1.0", "weights": {"Detection": .30, "Response": .25, "Telemetry": .20, "Quality": .15, "Governance": .10}, "confidence_floor": 70, "minimum_reviewed_cases": 10, "max_test_age_days": 30}
+POLICY = {
+    "id": "sat-sa-demo-2.0",
+    "weights": {"Detection": .30, "Response": .25, "Telemetry": .20, "Quality": .15, "Governance": .10},
+    "confidence_floor": 70,
+    "minimum_reviewed_cases": 10,
+    "max_test_age_days": 30,
+    "lifecycle": {
+        "investigation_target_minutes": 15,
+        "escalation_target_minutes": 15,
+        "response_target_minutes": 60,
+        "closure_target_minutes": 240,
+        "timely_credit": 1.0,
+        "delayed_credit": 0.5,
+        "missing_credit": 0.0,
+    },
+}
 KINDS = {"SIEM", "EDR", "SOAR", "UEBA", "CTI"}
 LIFECYCLE_STAGES = ("detection", "investigation", "escalation", "response", "closure")
 LIFECYCLE_INTERVALS = (
@@ -177,39 +192,62 @@ def assess_lifecycles(incidents):
     findings = []
     timing_values = {name: [] for name, _, _ in LIFECYCLE_INTERVALS}
     assessed = []
+    policy = POLICY["lifecycle"]
+    targets = {
+        "investigation": policy["investigation_target_minutes"],
+        "escalation": policy["escalation_target_minutes"],
+        "response": policy["response_target_minutes"],
+        "closure": policy["closure_target_minutes"],
+    }
+    components = {
+        name: {"applicable": 0, "timely": 0, "delayed": 0, "missing": 0, "unmeasured": 0, "not_applicable": 0, "credits": 0.0, "target_minutes": target}
+        for name, target in targets.items()
+    }
 
-    def reference_before(incident, missing_stage):
-        position = LIFECYCLE_STAGES.index(missing_stage)
+    def stage_reference(incident, stage_name):
+        stage = incident["stages"][stage_name]
+        if stage and stage["evidence_ref"]:
+            return stage["evidence_ref"]
+        position = LIFECYCLE_STAGES.index(stage_name)
         for stage_name in reversed(LIFECYCLE_STAGES[:position]):
             stage = incident["stages"][stage_name]
             if stage and stage["evidence_ref"]:
                 return stage["evidence_ref"]
         return ""
 
-    def add_finding(incident, stage, priority, reason):
+    def add_finding(incident, stage, kind, priority, reason, observed=None):
         findings.append({
             "priority": priority,
-            "title": f"Complete {stage} for {incident['incident_id']}",
+            "title": f"Address {stage} {kind} for {incident['incident_id']}",
             "reason": reason,
-            "evidence_ref": reference_before(incident, stage),
+            "evidence_ref": stage_reference(incident, stage),
             "owner": "SOC operations",
             "incident_id": incident["incident_id"],
             "alert_id": incident["alert_id"],
             "case_id": incident["case_id"],
             "stage": stage,
+            "finding_type": kind,
+            "observed_minutes": observed,
+            "policy_threshold_minutes": targets[stage],
         })
+
+    def evaluate(component_name, observed=None, present=True, measurable=True):
+        component = components[component_name]
+        component["applicable"] += 1
+        if not present:
+            result, credit = "missing", policy["missing_credit"]
+        elif not measurable:
+            result, credit = "unmeasured", policy["delayed_credit"]
+        elif observed <= component["target_minutes"]:
+            result, credit = "timely", policy["timely_credit"]
+        else:
+            result, credit = "delayed", policy["delayed_credit"]
+        component[result] += 1
+        component["credits"] += credit
+        return {"result": result, "observed_minutes": observed, "threshold_minutes": component["target_minutes"], "credit": credit}
 
     for incident in incidents:
         stages = incident["stages"]
-        if stages["investigation"] is None:
-            add_finding(incident, "investigation", "Medium", "Alert exists but no linked investigation stage was recorded")
-        if incident["escalation_required"] and stages["investigation"] is not None and stages["escalation"] is None:
-            add_finding(incident, "escalation", "High", "Investigation requires escalation but no linked escalation stage was recorded")
-        if stages["response"] is None:
-            add_finding(incident, "response", "High", "No linked response or containment stage was recorded")
-        if stages["closure"] is None:
-            add_finding(incident, "closure", "Medium", "No linked closure or recovery stage was recorded")
-
         timings = {}
         for metric, start_name, end_name in LIFECYCLE_INTERVALS:
             start, end = stages[start_name], stages[end_name]
@@ -218,18 +256,66 @@ def assess_lifecycles(incidents):
                 value = round((timestamp(end["timestamp"]) - timestamp(start["timestamp"])).total_seconds() / 60, 1)
                 timing_values[metric].append(value)
             timings[metric] = value
+        investigation_delay = timings["detection_to_investigation"]
+        investigation = evaluate("investigation", investigation_delay, stages["investigation"] is not None)
+        if investigation["result"] == "missing":
+            add_finding(incident, "investigation", "missing", "Medium", "Alert exists but no linked investigation stage was recorded")
+        elif investigation["result"] == "delayed":
+            add_finding(incident, "investigation", "delayed", "Medium", f"Investigation began after {investigation_delay:.1f} minutes, exceeding the {targets['investigation']}-minute target", investigation_delay)
+
+        if incident["escalation_required"]:
+            escalation_delay = timings["investigation_to_escalation"]
+            escalation = evaluate("escalation", escalation_delay, stages["escalation"] is not None, stages["investigation"] is not None)
+            if escalation["result"] == "missing" and stages["investigation"] is not None:
+                add_finding(incident, "escalation", "missing", "High", "Investigation requires escalation but no linked escalation stage was recorded")
+            elif escalation["result"] == "delayed":
+                add_finding(incident, "escalation", "delayed", "Medium", f"Escalation occurred after {escalation_delay:.1f} minutes, exceeding the {targets['escalation']}-minute target", escalation_delay)
+        else:
+            components["escalation"]["not_applicable"] += 1
+            escalation = {"result": "not_required", "observed_minutes": None, "threshold_minutes": targets["escalation"], "credit": None}
+
+        response_delay = None
+        if stages["response"] is not None:
+            response_delay = round((timestamp(stages["response"]["timestamp"]) - timestamp(stages["detection"]["timestamp"])).total_seconds() / 60, 1)
+        response = evaluate("response", response_delay, stages["response"] is not None)
+        if response["result"] == "missing":
+            add_finding(incident, "response", "missing", "High", "No linked response or containment stage was recorded")
+        elif response["result"] == "delayed":
+            add_finding(incident, "response", "delayed", "High", f"Response occurred after {response_delay:.1f} minutes, exceeding the {targets['response']}-minute target", response_delay)
+
+        closure_delay = timings["response_to_closure"]
+        closure = evaluate("closure", closure_delay, stages["closure"] is not None, stages["response"] is not None)
+        if closure["result"] == "missing":
+            add_finding(incident, "closure", "missing", "Medium", "No linked closure or recovery stage was recorded")
+        elif closure["result"] == "delayed":
+            add_finding(incident, "closure", "delayed", "Medium", f"Closure occurred after {closure_delay:.1f} minutes, exceeding the {targets['closure']}-minute target", closure_delay)
+
         complete = stages["investigation"] is not None and stages["response"] is not None and stages["closure"] is not None and (not incident["escalation_required"] or stages["escalation"] is not None)
-        assessed.append({**incident, "complete": complete, "timing_minutes": timings})
+        assessed.append({**incident, "complete": complete, "timing_minutes": timings, "stage_evaluation": {"investigation": investigation, "escalation": escalation, "response": response, "closure": closure}})
 
     metrics = {
         name: {"count": len(values), "average_minutes": round(sum(values) / len(values), 1) if values else None}
         for name, values in timing_values.items()
     }
+    for component in components.values():
+        component["credits"] = round(component["credits"], 1)
+        component["score"] = round(100 * component["credits"] / component["applicable"], 1) if component["applicable"] else None
+        component["met"] = component["timely"]
+    operational_names = ("investigation", "escalation", "response")
+    operational_applicable = sum(components[name]["applicable"] for name in operational_names)
+    operational_credits = sum(components[name]["credits"] for name in operational_names)
     return {
         "incident_count": len(incidents),
         "complete_incidents": sum(incident["complete"] for incident in assessed),
         "incidents": assessed,
         "timing_metrics": metrics,
+        "scoring": {
+            "applied": bool(incidents),
+            "credit_policy": {"timely": policy["timely_credit"], "delayed": policy["delayed_credit"], "missing": policy["missing_credit"]},
+            "components": components,
+            "operational_response": {"applicable": operational_applicable, "credits": round(operational_credits, 1), "score": round(100 * operational_credits / operational_applicable, 1) if operational_applicable else None},
+            "closure_discipline": {"applicable": components["closure"]["applicable"], "credits": components["closure"]["credits"], "score": components["closure"]["score"]},
+        },
     }, findings
 
 def assess(data):
@@ -259,14 +345,40 @@ def assess(data):
             on_time += int(minutes <= c["sla_minutes"] and bool(c.get("evidence_ref")))
     reviewed = [c for c in cases if c["disposition"] != "unreviewed"]
     tp = sum(c["disposition"] == "true_positive" for c in reviewed)
+    lifecycle, lifecycle_findings = assess_lifecycles(normalized["incidents"])
+    lifecycle["enabled"] = normalized["mode"] == "lifecycle"
+    findings.extend(lifecycle_findings)
+    legacy_response = 100 * ratio(on_time, len(eligible))
+    legacy_quality = 100 * ratio(tp, len(reviewed))
     domain = {
         "Detection": 100 * ratio(sum(t["risk_weight"] for t, ok in zip(techniques, valid_tests) if ok), sum(t["risk_weight"] for t in techniques)),
-        "Response": 100 * ratio(on_time, len(eligible)),
+        "Response": legacy_response,
         "Telemetry": 100 * ratio(sum(s["weight"] * s["completeness"] * freshness[s["id"]] for s in sources), sum(s["weight"] for s in sources)),
-        "Quality": 100 * ratio(tp, len(reviewed)),
+        "Quality": legacy_quality,
         "Governance": 100 * ratio(sum(c["satisfied"] and bool(c.get("evidence_ref")) for c in controls), len(controls)),
     }
-    all_rows = sources + techniques + cases + controls
+    scoring = lifecycle["scoring"]
+    if lifecycle["enabled"] and lifecycle["incident_count"]:
+        operational = scoring["operational_response"]
+        response_requirements = len(eligible) + operational["applicable"]
+        response_credits = on_time + operational["credits"]
+        domain["Response"] = 100 * ratio(response_credits, response_requirements)
+        closure = scoring["closure_discipline"]
+        quality_requirements = len(reviewed) + closure["applicable"]
+        quality_credits = tp + closure["credits"]
+        domain["Quality"] = 100 * ratio(quality_credits, quality_requirements)
+        scoring["domain_impact"] = {
+            "Response": {"legacy_score": round(legacy_response, 1), "legacy_requirements": len(eligible), "legacy_credits": on_time, "lifecycle_score": operational["score"], "lifecycle_requirements": operational["applicable"], "lifecycle_credits": operational["credits"], "combined_score": round(domain["Response"], 1), "effect_points": round(domain["Response"] - legacy_response, 1)},
+            "Quality": {"legacy_score": round(legacy_quality, 1), "legacy_requirements": len(reviewed), "legacy_credits": tp, "lifecycle_score": closure["score"], "lifecycle_requirements": closure["applicable"], "lifecycle_credits": closure["credits"], "combined_score": round(domain["Quality"], 1), "effect_points": round(domain["Quality"] - legacy_quality, 1)},
+        }
+    else:
+        scoring["applied"] = False
+        scoring["domain_impact"] = {
+            "Response": {"legacy_score": round(legacy_response, 1), "combined_score": round(legacy_response, 1), "effect_points": 0.0},
+            "Quality": {"legacy_score": round(legacy_quality, 1), "combined_score": round(legacy_quality, 1), "effect_points": 0.0},
+        }
+    lifecycle_evidence_rows = [stage for incident in normalized["incidents"] for stage in incident["stages"].values() if stage is not None]
+    all_rows = sources + techniques + cases + controls + lifecycle_evidence_rows
     completeness = mean([mean([s["completeness"] for s in sources]), ratio(len(reviewed), len(cases)), ratio(sum(bool(t.get("tested_at")) for t in techniques), len(techniques))])
     fresh = mean(list(freshness.values()))
     traceability = ratio(sum(bool(r.get("evidence_ref")) for r in all_rows), len(all_rows))
@@ -283,9 +395,6 @@ def assess(data):
     for s in sources:
         if freshness[s["id"]] < 1:
             findings.append({"priority": "High", "title": f"Restore {s['kind']} freshness", "reason": "No events within 24-hour freshness target", "owner": "Platform engineering", "evidence_ref": s.get("evidence_ref", "")})
-    lifecycle, lifecycle_findings = assess_lifecycles(normalized["incidents"])
-    lifecycle["enabled"] = normalized["mode"] == "lifecycle"
-    findings.extend(lifecycle_findings)
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     scope_contract = {"sources": [(s["id"], s["kind"], s["weight"]) for s in sources], "techniques": [(t["id"], t["source_id"], t["risk_weight"]) for t in techniques], "controls": [(c["id"], c["critical"]) for c in controls]}
     if lifecycle["enabled"]:

@@ -32,7 +32,24 @@ Inputs may include a `lifecycles` array. Each row requires unique `incident_id`,
 
 Lifecycle detection must identify the same instant as the linked case `detected_at`. When both a lifecycle response and case `contained_at` exist, response cannot follow containment; a response whose status is `contained` must identify exactly the same instant as `contained_at`. This permits an earlier initial-response event without allowing contradictory containment evidence.
 
-Lifecycle-enabled reports expose normalized incidents, missing-stage findings and per-incident plus aggregate timing metrics. Lifecycle data does not yet change the existing domain scores or maturity policy. Inputs without `lifecycles` retain the legacy assessment behavior.
+Lifecycle-enabled reports expose normalized incidents, missing-stage and delayed-stage findings, per-incident timing and stage evaluations, aggregate timing metrics, component scores, and domain-impact calculations. Inputs without `lifecycles` retain the legacy assessment behavior.
+
+## Lifecycle scoring policy
+
+The versioned `sat-sa-demo-2.0` policy uses these prototype targets:
+
+| Requirement | Measured interval | Target |
+| --- | --- | ---: |
+| Investigation | Detection to investigation | 15 minutes |
+| Required escalation | Investigation to escalation | 15 minutes |
+| Response / containment | Detection to response | 60 minutes |
+| Closure / recovery | Response to closure | 240 minutes |
+
+Each applicable requirement receives 1 credit when present and within target, 0.5 when present but delayed, and 0 when missing. A later stage that is present but cannot be timed because its prerequisite is missing receives 0.5 credit. Escalation is excluded when `escalation_required` is false. Threshold equality is timely.
+
+For lifecycle-enabled inputs containing incidents, Response pools the existing legacy containment-SLA credits with investigation, applicable escalation, and lifecycle response credits. Quality pools the existing reviewed-case true-positive credits with closure-discipline credits. Each evidence obligation has equal weight inside its domain; the five overall domain weights do not change. The report exposes every requirement count, credit, sub-score, and resulting domain effect.
+
+Confidence remains an evidence-quality measure rather than a performance score. Missing or delayed stages do not directly lower confidence. Present lifecycle stages join the traceability calculation, so a present stage without an evidence reference can lower confidence. Lifecycle performance introduces no new maturity gate; score changes flow through the existing maturity bands and gates.
 
 ## Scoring contract
 
@@ -40,15 +57,15 @@ Each domain is 0–100. Overall score = .30 Detection + .25 Response + .20 Telem
 
 Detection = risk weight of passed tests with linked evidence and age at most 30 days / all in-scope technique risk weight. In-scope untested or stale tests receive no credit. Weights 1–5 represent the supervisor's declared threat relevance and asset impact; they are not inferred automatically.
 
-Response = linked, contained cases within their SLA / all cases except reviewed false positives. Open and unreviewed cases remain in the denominator. SLA targets are part of the input.
+Legacy Response = linked, contained cases within their SLA / all cases except reviewed false positives. Open and unreviewed cases remain in the denominator. For lifecycle-enabled inputs, the final Response domain pools those legacy credits with lifecycle investigation, required-escalation and response credits as described above.
 
 Telemetry = weighted average of completeness times freshness. Freshness is 1 through 24 hours, then decays linearly to 0 at 96 hours. These are demo policy choices, not general recommendations for all CTI or telemetry cadences.
 
-Quality = true positives / reviewed cases. This is precision only. It does not estimate false negatives or recall. A low-sample gate prevents fewer than 10 reviewed cases from receiving a maturity rating.
+Legacy Quality = true positives / reviewed cases. This is precision only and does not estimate false negatives or recall. For lifecycle-enabled inputs, the final Quality domain pools those credits with closure-discipline credits. A low-sample gate still prevents fewer than 10 reviewed cases from receiving a maturity rating.
 
 Governance = evidenced satisfied controls / applicable controls. Evidence references require human verification.
 
-Confidence = 100 × completeness × freshness × traceability. Completeness is the mean of source completeness, case review fraction and technique test fraction. Freshness is the unweighted mean source freshness. Traceability is the fraction of all evidence rows with a reference. This is an evidence-quality index, not a confidence interval or calibrated probability.
+Confidence = 100 × completeness × freshness × traceability. Completeness is the mean of source completeness, case review fraction and technique test fraction. Freshness is the unweighted mean source freshness. Traceability is the fraction of legacy evidence rows and present lifecycle stages with a reference. This is an evidence-quality index, not a confidence interval or calibrated probability.
 
 Bands: L1 <40, L2 40–<60, L3 60–<80, L4 >=80. Confidence below 70, fewer than 10 reviewed cases, or an empty evidence domain makes the rating Provisional. Missing critical governance controls cap the rating at L2. L4 additionally requires Detection >=75 and no unvalidated technique with risk weight >=4. These are proposed SAT-SA gates, not NIST CSF implementation tiers.
 

@@ -4,7 +4,7 @@
     "as_of": "2026-09-30T12:00:00+00:00",
     "synthetic": true,
     "policy": {
-      "id": "sat-sa-demo-1.0",
+      "id": "sat-sa-demo-2.0",
       "weights": {
         "Detection": 0.3,
         "Response": 0.25,
@@ -14,16 +14,25 @@
       },
       "confidence_floor": 70,
       "minimum_reviewed_cases": 10,
-      "max_test_age_days": 30
+      "max_test_age_days": 30,
+      "lifecycle": {
+        "investigation_target_minutes": 15,
+        "escalation_target_minutes": 15,
+        "response_target_minutes": 60,
+        "closure_target_minutes": 240,
+        "timely_credit": 1.0,
+        "delayed_credit": 0.5,
+        "missing_credit": 0.0
+      }
     },
-    "score": 80.2,
+    "score": 83.4,
     "confidence": 94.4,
     "maturity": "L3",
     "domains": {
       "Detection": 70.0,
-      "Response": 75.0,
+      "Response": 85.7,
       "Telemetry": 100.0,
-      "Quality": 83.3,
+      "Quality": 86.7,
       "Governance": 80.0
     },
     "confidence_factors": {
@@ -85,6 +94,32 @@
             "escalation_to_response": 20.0,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -123,6 +158,32 @@
             "escalation_to_response": null,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -165,6 +226,32 @@
             "escalation_to_response": 20.0,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -203,6 +290,32 @@
             "escalation_to_response": null,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -245,6 +358,32 @@
             "escalation_to_response": 20.0,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -283,6 +422,32 @@
             "escalation_to_response": null,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         }
       ],
@@ -306,6 +471,96 @@
         "total_lifecycle": {
           "count": 6,
           "average_minutes": 90.0
+        }
+      },
+      "scoring": {
+        "applied": true,
+        "credit_policy": {
+          "timely": 1.0,
+          "delayed": 0.5,
+          "missing": 0.0
+        },
+        "components": {
+          "investigation": {
+            "applicable": 6,
+            "timely": 6,
+            "delayed": 0,
+            "missing": 0,
+            "unmeasured": 0,
+            "not_applicable": 0,
+            "credits": 6.0,
+            "target_minutes": 15,
+            "score": 100.0,
+            "met": 6
+          },
+          "escalation": {
+            "applicable": 3,
+            "timely": 3,
+            "delayed": 0,
+            "missing": 0,
+            "unmeasured": 0,
+            "not_applicable": 3,
+            "credits": 3.0,
+            "target_minutes": 15,
+            "score": 100.0,
+            "met": 3
+          },
+          "response": {
+            "applicable": 6,
+            "timely": 6,
+            "delayed": 0,
+            "missing": 0,
+            "unmeasured": 0,
+            "not_applicable": 0,
+            "credits": 6.0,
+            "target_minutes": 60,
+            "score": 100.0,
+            "met": 6
+          },
+          "closure": {
+            "applicable": 6,
+            "timely": 6,
+            "delayed": 0,
+            "missing": 0,
+            "unmeasured": 0,
+            "not_applicable": 0,
+            "credits": 6.0,
+            "target_minutes": 240,
+            "score": 100.0,
+            "met": 6
+          }
+        },
+        "operational_response": {
+          "applicable": 15,
+          "credits": 15.0,
+          "score": 100.0
+        },
+        "closure_discipline": {
+          "applicable": 6,
+          "credits": 6.0,
+          "score": 100.0
+        },
+        "domain_impact": {
+          "Response": {
+            "legacy_score": 75.0,
+            "legacy_requirements": 20,
+            "legacy_credits": 15,
+            "lifecycle_score": 100.0,
+            "lifecycle_requirements": 15,
+            "lifecycle_credits": 15.0,
+            "combined_score": 85.7,
+            "effect_points": 10.7
+          },
+          "Quality": {
+            "legacy_score": 83.3,
+            "legacy_requirements": 24,
+            "legacy_credits": 20,
+            "lifecycle_score": 100.0,
+            "lifecycle_requirements": 6,
+            "lifecycle_credits": 6.0,
+            "combined_score": 86.7,
+            "effect_points": 3.3
+          }
         }
       },
       "enabled": true
@@ -355,7 +610,7 @@
     "as_of": "2026-09-30T12:00:00+00:00",
     "synthetic": true,
     "policy": {
-      "id": "sat-sa-demo-1.0",
+      "id": "sat-sa-demo-2.0",
       "weights": {
         "Detection": 0.3,
         "Response": 0.25,
@@ -365,16 +620,25 @@
       },
       "confidence_floor": 70,
       "minimum_reviewed_cases": 10,
-      "max_test_age_days": 30
+      "max_test_age_days": 30,
+      "lifecycle": {
+        "investigation_target_minutes": 15,
+        "escalation_target_minutes": 15,
+        "response_target_minutes": 60,
+        "closure_target_minutes": 240,
+        "timely_credit": 1.0,
+        "delayed_credit": 0.5,
+        "missing_credit": 0.0
+      }
     },
-    "score": 66.4,
+    "score": 65.4,
     "confidence": 59.6,
     "maturity": "Provisional",
     "domains": {
       "Detection": 47.5,
-      "Response": 75.0,
+      "Response": 72.9,
       "Telemetry": 64.5,
-      "Quality": 83.3,
+      "Quality": 80.0,
       "Governance": 80.0
     },
     "confidence_factors": {
@@ -424,7 +688,7 @@
               "status": "contained"
             },
             "closure": {
-              "timestamp": "2026-09-28T13:30:00+00:00",
+              "timestamp": "2026-09-28T17:00:00+00:00",
               "evidence_ref": "demo://lifecycle/INC-001/closure",
               "status": "closed"
             }
@@ -434,8 +698,34 @@
             "detection_to_investigation": 25.0,
             "investigation_to_escalation": 2.0,
             "escalation_to_response": 3.0,
-            "response_to_closure": 60.0,
-            "total_lifecycle": 90.0
+            "response_to_closure": 270.0,
+            "total_lifecycle": 300.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "delayed",
+              "observed_minutes": 25.0,
+              "threshold_minutes": 15,
+              "credit": 0.5
+            },
+            "escalation": {
+              "result": "timely",
+              "observed_minutes": 2.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "delayed",
+              "observed_minutes": 270.0,
+              "threshold_minutes": 240,
+              "credit": 0.5
+            }
           }
         },
         {
@@ -457,7 +747,7 @@
             },
             "escalation": null,
             "response": {
-              "timestamp": "2026-09-28T11:30:00+00:00",
+              "timestamp": "2026-09-28T12:15:00+00:00",
               "evidence_ref": "demo://lifecycle/INC-002/response",
               "status": "contained"
             },
@@ -472,8 +762,34 @@
             "detection_to_investigation": 5.0,
             "investigation_to_escalation": null,
             "escalation_to_response": null,
-            "response_to_closure": 60.0,
+            "response_to_closure": 15.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "delayed",
+              "observed_minutes": 75.0,
+              "threshold_minutes": 60,
+              "credit": 0.5
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 15.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -512,6 +828,32 @@
             "escalation_to_response": null,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "missing",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": 0.0
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         },
         {
@@ -546,6 +888,32 @@
             "escalation_to_response": null,
             "response_to_closure": null,
             "total_lifecycle": null
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "missing",
+              "observed_minutes": null,
+              "threshold_minutes": 240,
+              "credit": 0.0
+            }
           }
         },
         {
@@ -566,7 +934,7 @@
               "status": "completed"
             },
             "escalation": {
-              "timestamp": "2026-09-28T08:10:00+00:00",
+              "timestamp": "2026-09-28T08:25:00+00:00",
               "evidence_ref": "demo://lifecycle/INC-005/escalation",
               "status": "completed"
             },
@@ -580,10 +948,36 @@
           "complete": false,
           "timing_minutes": {
             "detection_to_investigation": 5.0,
-            "investigation_to_escalation": 5.0,
+            "investigation_to_escalation": 20.0,
             "escalation_to_response": null,
             "response_to_closure": null,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "timely",
+              "observed_minutes": 5.0,
+              "threshold_minutes": 15,
+              "credit": 1.0
+            },
+            "escalation": {
+              "result": "delayed",
+              "observed_minutes": 20.0,
+              "threshold_minutes": 15,
+              "credit": 0.5
+            },
+            "response": {
+              "result": "missing",
+              "observed_minutes": null,
+              "threshold_minutes": 60,
+              "credit": 0.0
+            },
+            "closure": {
+              "result": "unmeasured",
+              "observed_minutes": null,
+              "threshold_minutes": 240,
+              "credit": 0.5
+            }
           }
         },
         {
@@ -618,6 +1012,32 @@
             "escalation_to_response": null,
             "response_to_closure": 60.0,
             "total_lifecycle": 90.0
+          },
+          "stage_evaluation": {
+            "investigation": {
+              "result": "missing",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": 0.0
+            },
+            "escalation": {
+              "result": "not_required",
+              "observed_minutes": null,
+              "threshold_minutes": 15,
+              "credit": null
+            },
+            "response": {
+              "result": "timely",
+              "observed_minutes": 30.0,
+              "threshold_minutes": 60,
+              "credit": 1.0
+            },
+            "closure": {
+              "result": "timely",
+              "observed_minutes": 60.0,
+              "threshold_minutes": 240,
+              "credit": 1.0
+            }
           }
         }
       ],
@@ -628,7 +1048,7 @@
         },
         "investigation_to_escalation": {
           "count": 2,
-          "average_minutes": 3.5
+          "average_minutes": 11.0
         },
         "escalation_to_response": {
           "count": 1,
@@ -636,11 +1056,101 @@
         },
         "response_to_closure": {
           "count": 4,
-          "average_minutes": 60.0
+          "average_minutes": 101.2
         },
         "total_lifecycle": {
           "count": 5,
-          "average_minutes": 90.0
+          "average_minutes": 132.0
+        }
+      },
+      "scoring": {
+        "applied": true,
+        "credit_policy": {
+          "timely": 1.0,
+          "delayed": 0.5,
+          "missing": 0.0
+        },
+        "components": {
+          "investigation": {
+            "applicable": 6,
+            "timely": 4,
+            "delayed": 1,
+            "missing": 1,
+            "unmeasured": 0,
+            "not_applicable": 0,
+            "credits": 4.5,
+            "target_minutes": 15,
+            "score": 75.0,
+            "met": 4
+          },
+          "escalation": {
+            "applicable": 3,
+            "timely": 1,
+            "delayed": 1,
+            "missing": 1,
+            "unmeasured": 0,
+            "not_applicable": 3,
+            "credits": 1.5,
+            "target_minutes": 15,
+            "score": 50.0,
+            "met": 1
+          },
+          "response": {
+            "applicable": 6,
+            "timely": 4,
+            "delayed": 1,
+            "missing": 1,
+            "unmeasured": 0,
+            "not_applicable": 0,
+            "credits": 4.5,
+            "target_minutes": 60,
+            "score": 75.0,
+            "met": 4
+          },
+          "closure": {
+            "applicable": 6,
+            "timely": 3,
+            "delayed": 1,
+            "missing": 1,
+            "unmeasured": 1,
+            "not_applicable": 0,
+            "credits": 4.0,
+            "target_minutes": 240,
+            "score": 66.7,
+            "met": 3
+          }
+        },
+        "operational_response": {
+          "applicable": 15,
+          "credits": 10.5,
+          "score": 70.0
+        },
+        "closure_discipline": {
+          "applicable": 6,
+          "credits": 4.0,
+          "score": 66.7
+        },
+        "domain_impact": {
+          "Response": {
+            "legacy_score": 75.0,
+            "legacy_requirements": 20,
+            "legacy_credits": 15,
+            "lifecycle_score": 70.0,
+            "lifecycle_requirements": 15,
+            "lifecycle_credits": 10.5,
+            "combined_score": 72.9,
+            "effect_points": -2.1
+          },
+          "Quality": {
+            "legacy_score": 83.3,
+            "legacy_requirements": 24,
+            "legacy_credits": 20,
+            "lifecycle_score": 66.7,
+            "lifecycle_requirements": 6,
+            "lifecycle_credits": 4.0,
+            "combined_score": 80.0,
+            "effect_points": -3.3
+          }
         }
       },
       "enabled": true
@@ -669,6 +1179,48 @@
       },
       {
         "priority": "High",
+        "title": "Address response delayed for INC-002",
+        "reason": "Response occurred after 75.0 minutes, exceeding the 60-minute target",
+        "evidence_ref": "demo://lifecycle/INC-002/response",
+        "owner": "SOC operations",
+        "incident_id": "INC-002",
+        "alert_id": "ALERT-002",
+        "case_id": "CASE-002",
+        "stage": "response",
+        "finding_type": "delayed",
+        "observed_minutes": 75.0,
+        "policy_threshold_minutes": 60
+      },
+      {
+        "priority": "High",
+        "title": "Address escalation missing for INC-003",
+        "reason": "Investigation requires escalation but no linked escalation stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-003/investigation",
+        "owner": "SOC operations",
+        "incident_id": "INC-003",
+        "alert_id": "ALERT-003",
+        "case_id": "CASE-003",
+        "stage": "escalation",
+        "finding_type": "missing",
+        "observed_minutes": null,
+        "policy_threshold_minutes": 15
+      },
+      {
+        "priority": "High",
+        "title": "Address response missing for INC-005",
+        "reason": "No linked response or containment stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-005/escalation",
+        "owner": "SOC operations",
+        "incident_id": "INC-005",
+        "alert_id": "ALERT-005",
+        "case_id": "CASE-005",
+        "stage": "response",
+        "finding_type": "missing",
+        "observed_minutes": null,
+        "policy_threshold_minutes": 60
+      },
+      {
+        "priority": "High",
         "title": "Restore EDR freshness",
         "reason": "No events within 24-hour freshness target",
         "owner": "Platform engineering",
@@ -680,28 +1232,6 @@
         "reason": "No events within 24-hour freshness target",
         "owner": "Platform engineering",
         "evidence_ref": "demo://telemetry/ueba"
-      },
-      {
-        "priority": "High",
-        "title": "Complete escalation for INC-003",
-        "reason": "Investigation requires escalation but no linked escalation stage was recorded",
-        "evidence_ref": "demo://lifecycle/INC-003/investigation",
-        "owner": "SOC operations",
-        "incident_id": "INC-003",
-        "alert_id": "ALERT-003",
-        "case_id": "CASE-003",
-        "stage": "escalation"
-      },
-      {
-        "priority": "High",
-        "title": "Complete response for INC-005",
-        "reason": "No linked response or containment stage was recorded",
-        "evidence_ref": "demo://lifecycle/INC-005/escalation",
-        "owner": "SOC operations",
-        "incident_id": "INC-005",
-        "alert_id": "ALERT-005",
-        "case_id": "CASE-005",
-        "stage": "response"
       },
       {
         "priority": "Medium",
@@ -726,28 +1256,76 @@
       },
       {
         "priority": "Medium",
-        "title": "Complete closure for INC-004",
+        "title": "Address investigation delayed for INC-001",
+        "reason": "Investigation began after 25.0 minutes, exceeding the 15-minute target",
+        "evidence_ref": "demo://lifecycle/INC-001/investigation",
+        "owner": "SOC operations",
+        "incident_id": "INC-001",
+        "alert_id": "ALERT-001",
+        "case_id": "CASE-001",
+        "stage": "investigation",
+        "finding_type": "delayed",
+        "observed_minutes": 25.0,
+        "policy_threshold_minutes": 15
+      },
+      {
+        "priority": "Medium",
+        "title": "Address closure delayed for INC-001",
+        "reason": "Closure occurred after 270.0 minutes, exceeding the 240-minute target",
+        "evidence_ref": "demo://lifecycle/INC-001/closure",
+        "owner": "SOC operations",
+        "incident_id": "INC-001",
+        "alert_id": "ALERT-001",
+        "case_id": "CASE-001",
+        "stage": "closure",
+        "finding_type": "delayed",
+        "observed_minutes": 270.0,
+        "policy_threshold_minutes": 240
+      },
+      {
+        "priority": "Medium",
+        "title": "Address closure missing for INC-004",
         "reason": "No linked closure or recovery stage was recorded",
         "evidence_ref": "demo://lifecycle/INC-004/response",
         "owner": "SOC operations",
         "incident_id": "INC-004",
         "alert_id": "ALERT-004",
         "case_id": "CASE-004",
-        "stage": "closure"
+        "stage": "closure",
+        "finding_type": "missing",
+        "observed_minutes": null,
+        "policy_threshold_minutes": 240
       },
       {
         "priority": "Medium",
-        "title": "Complete investigation for INC-006",
+        "title": "Address escalation delayed for INC-005",
+        "reason": "Escalation occurred after 20.0 minutes, exceeding the 15-minute target",
+        "evidence_ref": "demo://lifecycle/INC-005/escalation",
+        "owner": "SOC operations",
+        "incident_id": "INC-005",
+        "alert_id": "ALERT-005",
+        "case_id": "CASE-005",
+        "stage": "escalation",
+        "finding_type": "delayed",
+        "observed_minutes": 20.0,
+        "policy_threshold_minutes": 15
+      },
+      {
+        "priority": "Medium",
+        "title": "Address investigation missing for INC-006",
         "reason": "Alert exists but no linked investigation stage was recorded",
         "evidence_ref": "demo://lifecycle/INC-006/detection",
         "owner": "SOC operations",
         "incident_id": "INC-006",
         "alert_id": "ALERT-006",
         "case_id": "CASE-006",
-        "stage": "investigation"
+        "stage": "investigation",
+        "finding_type": "missing",
+        "observed_minutes": null,
+        "policy_threshold_minutes": 15
       }
     ],
-    "sha256": "f8a94660eeba4f503c925dfd6bb9f98e4b94a86dd57cf72775fae199173a2f79",
+    "sha256": "01a9a1e5ef4f5476acd4404ee8dd1e434f76aeccb8c0066f681dbfc6d3baeb68",
     "scope_sha256": "aa3fe7f0baf8155fdc51a0feb15a9b483b26e3bd4ca4fbae8ac810aeb8d9e604",
     "limitations": [
       "Declared scope and references require assessor review",
@@ -758,13 +1336,13 @@
     ]
   },
   "comparison": {
-    "score_delta": -13.8,
+    "score_delta": -18.0,
     "confidence_delta": -34.8,
     "domain_delta": {
       "Detection": -22.5,
-      "Response": 0.0,
+      "Response": -12.8,
       "Telemetry": -35.5,
-      "Quality": 0.0,
+      "Quality": -6.7,
       "Governance": 0.0
     },
     "drift_alert": true
