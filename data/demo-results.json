@@ -41,6 +41,275 @@
       "on_time": 15,
       "response_denominator": 20
     },
+    "lifecycle": {
+      "incident_count": 6,
+      "complete_incidents": 6,
+      "incidents": [
+        {
+          "incident_id": "INC-001",
+          "alert_id": "ALERT-001",
+          "case_id": "CASE-001",
+          "source_id": "siem-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T12:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T12:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/investigation",
+              "status": "completed"
+            },
+            "escalation": {
+              "timestamp": "2026-09-28T12:10:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/escalation",
+              "status": "completed"
+            },
+            "response": {
+              "timestamp": "2026-09-28T12:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T13:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": 5.0,
+            "escalation_to_response": 20.0,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-002",
+          "alert_id": "ALERT-002",
+          "case_id": "CASE-002",
+          "source_id": "edr-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T11:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T11:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T11:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T12:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-003",
+          "alert_id": "ALERT-003",
+          "case_id": "CASE-003",
+          "source_id": "soar-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T10:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T10:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/investigation",
+              "status": "completed"
+            },
+            "escalation": {
+              "timestamp": "2026-09-28T10:10:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/escalation",
+              "status": "completed"
+            },
+            "response": {
+              "timestamp": "2026-09-28T10:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T11:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": 5.0,
+            "escalation_to_response": 20.0,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-004",
+          "alert_id": "ALERT-004",
+          "case_id": "CASE-004",
+          "source_id": "ueba-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T09:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T09:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T09:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T10:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-005",
+          "alert_id": "ALERT-005",
+          "case_id": "CASE-005",
+          "source_id": "cti-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T08:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T08:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/investigation",
+              "status": "completed"
+            },
+            "escalation": {
+              "timestamp": "2026-09-28T08:10:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/escalation",
+              "status": "completed"
+            },
+            "response": {
+              "timestamp": "2026-09-28T08:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T09:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": 5.0,
+            "escalation_to_response": 20.0,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-006",
+          "alert_id": "ALERT-006",
+          "case_id": "CASE-006",
+          "source_id": "siem-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T07:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T07:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T07:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T08:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        }
+      ],
+      "timing_metrics": {
+        "detection_to_investigation": {
+          "count": 6,
+          "average_minutes": 5.0
+        },
+        "investigation_to_escalation": {
+          "count": 3,
+          "average_minutes": 5.0
+        },
+        "escalation_to_response": {
+          "count": 3,
+          "average_minutes": 20.0
+        },
+        "response_to_closure": {
+          "count": 6,
+          "average_minutes": 60.0
+        },
+        "total_lifecycle": {
+          "count": 6,
+          "average_minutes": 90.0
+        }
+      },
+      "enabled": true
+    },
     "findings": [
       {
         "priority": "High",
@@ -71,8 +340,8 @@
         "owner": "Detection engineering"
       }
     ],
-    "sha256": "1823b55bc5698ea3632221dc476fb456f0764b56147ee7bf065f29f2a46cfd58",
-    "scope_sha256": "cfb86319d6a496d1d61efe52ec73651bd97b7549a57f35ba9cf37ae8363c9070",
+    "sha256": "35054469ab2ce05825d407338bc44623d0357816d1d3134615c18fe3fdf0d46f",
+    "scope_sha256": "aa3fe7f0baf8155fdc51a0feb15a9b483b26e3bd4ca4fbae8ac810aeb8d9e604",
     "limitations": [
       "Declared scope and references require assessor review",
       "Synthetic demo is not operational effectiveness evidence",
@@ -123,6 +392,259 @@
       "on_time": 15,
       "response_denominator": 20
     },
+    "lifecycle": {
+      "incident_count": 6,
+      "complete_incidents": 2,
+      "incidents": [
+        {
+          "incident_id": "INC-001",
+          "alert_id": "ALERT-001",
+          "case_id": "CASE-001",
+          "source_id": "siem-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T12:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T12:25:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/investigation",
+              "status": "completed"
+            },
+            "escalation": {
+              "timestamp": "2026-09-28T12:27:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/escalation",
+              "status": "completed"
+            },
+            "response": {
+              "timestamp": "2026-09-28T12:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T13:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-001/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 25.0,
+            "investigation_to_escalation": 2.0,
+            "escalation_to_response": 3.0,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-002",
+          "alert_id": "ALERT-002",
+          "case_id": "CASE-002",
+          "source_id": "edr-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T11:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T11:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T11:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T12:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-002/closure",
+              "status": "closed"
+            }
+          },
+          "complete": true,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-003",
+          "alert_id": "ALERT-003",
+          "case_id": "CASE-003",
+          "source_id": "soar-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T10:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T10:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T10:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T11:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-003/closure",
+              "status": "closed"
+            }
+          },
+          "complete": false,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-004",
+          "alert_id": "ALERT-004",
+          "case_id": "CASE-004",
+          "source_id": "ueba-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T09:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T09:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/investigation",
+              "status": "completed"
+            },
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T09:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-004/response",
+              "status": "contained"
+            },
+            "closure": null
+          },
+          "complete": false,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": null,
+            "total_lifecycle": null
+          }
+        },
+        {
+          "incident_id": "INC-005",
+          "alert_id": "ALERT-005",
+          "case_id": "CASE-005",
+          "source_id": "cti-1",
+          "escalation_required": true,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T08:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/detection",
+              "status": "detected"
+            },
+            "investigation": {
+              "timestamp": "2026-09-28T08:05:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/investigation",
+              "status": "completed"
+            },
+            "escalation": {
+              "timestamp": "2026-09-28T08:10:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/escalation",
+              "status": "completed"
+            },
+            "response": null,
+            "closure": {
+              "timestamp": "2026-09-28T09:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-005/closure",
+              "status": "closed"
+            }
+          },
+          "complete": false,
+          "timing_minutes": {
+            "detection_to_investigation": 5.0,
+            "investigation_to_escalation": 5.0,
+            "escalation_to_response": null,
+            "response_to_closure": null,
+            "total_lifecycle": 90.0
+          }
+        },
+        {
+          "incident_id": "INC-006",
+          "alert_id": "ALERT-006",
+          "case_id": "CASE-006",
+          "source_id": "siem-1",
+          "escalation_required": false,
+          "stages": {
+            "detection": {
+              "timestamp": "2026-09-28T07:00:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/detection",
+              "status": "detected"
+            },
+            "investigation": null,
+            "escalation": null,
+            "response": {
+              "timestamp": "2026-09-28T07:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/response",
+              "status": "contained"
+            },
+            "closure": {
+              "timestamp": "2026-09-28T08:30:00+00:00",
+              "evidence_ref": "demo://lifecycle/INC-006/closure",
+              "status": "closed"
+            }
+          },
+          "complete": false,
+          "timing_minutes": {
+            "detection_to_investigation": null,
+            "investigation_to_escalation": null,
+            "escalation_to_response": null,
+            "response_to_closure": 60.0,
+            "total_lifecycle": 90.0
+          }
+        }
+      ],
+      "timing_metrics": {
+        "detection_to_investigation": {
+          "count": 5,
+          "average_minutes": 9.0
+        },
+        "investigation_to_escalation": {
+          "count": 2,
+          "average_minutes": 3.5
+        },
+        "escalation_to_response": {
+          "count": 1,
+          "average_minutes": 3.0
+        },
+        "response_to_closure": {
+          "count": 4,
+          "average_minutes": 60.0
+        },
+        "total_lifecycle": {
+          "count": 5,
+          "average_minutes": 90.0
+        }
+      },
+      "enabled": true
+    },
     "findings": [
       {
         "priority": "High",
@@ -160,6 +682,28 @@
         "evidence_ref": "demo://telemetry/ueba"
       },
       {
+        "priority": "High",
+        "title": "Complete escalation for INC-003",
+        "reason": "Investigation requires escalation but no linked escalation stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-003/investigation",
+        "owner": "SOC operations",
+        "incident_id": "INC-003",
+        "alert_id": "ALERT-003",
+        "case_id": "CASE-003",
+        "stage": "escalation"
+      },
+      {
+        "priority": "High",
+        "title": "Complete response for INC-005",
+        "reason": "No linked response or containment stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-005/escalation",
+        "owner": "SOC operations",
+        "incident_id": "INC-005",
+        "alert_id": "ALERT-005",
+        "case_id": "CASE-005",
+        "stage": "response"
+      },
+      {
         "priority": "Medium",
         "title": "Validate T1041",
         "reason": "Failed, untested, stale or unlinked test evidence",
@@ -179,10 +723,32 @@
         "reason": "Failed, untested, stale or unlinked test evidence",
         "evidence_ref": "demo://validation/T1087",
         "owner": "Detection engineering"
+      },
+      {
+        "priority": "Medium",
+        "title": "Complete closure for INC-004",
+        "reason": "No linked closure or recovery stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-004/response",
+        "owner": "SOC operations",
+        "incident_id": "INC-004",
+        "alert_id": "ALERT-004",
+        "case_id": "CASE-004",
+        "stage": "closure"
+      },
+      {
+        "priority": "Medium",
+        "title": "Complete investigation for INC-006",
+        "reason": "Alert exists but no linked investigation stage was recorded",
+        "evidence_ref": "demo://lifecycle/INC-006/detection",
+        "owner": "SOC operations",
+        "incident_id": "INC-006",
+        "alert_id": "ALERT-006",
+        "case_id": "CASE-006",
+        "stage": "investigation"
       }
     ],
-    "sha256": "dafc1a52b49365fb44f9cda5f593cecbc671a7b70ee9663035f0456b4fa02b6a",
-    "scope_sha256": "cfb86319d6a496d1d61efe52ec73651bd97b7549a57f35ba9cf37ae8363c9070",
+    "sha256": "f8a94660eeba4f503c925dfd6bb9f98e4b94a86dd57cf72775fae199173a2f79",
+    "scope_sha256": "aa3fe7f0baf8155fdc51a0feb15a9b483b26e3bd4ca4fbae8ac810aeb8d9e604",
     "limitations": [
       "Declared scope and references require assessor review",
       "Synthetic demo is not operational effectiveness evidence",

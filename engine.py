@@ -6,6 +6,14 @@ from datetime import datetime, timezone
 
 POLICY = {"id": "sat-sa-demo-1.0", "weights": {"Detection": .30, "Response": .25, "Telemetry": .20, "Quality": .15, "Governance": .10}, "confidence_floor": 70, "minimum_reviewed_cases": 10, "max_test_age_days": 30}
 KINDS = {"SIEM", "EDR", "SOAR", "UEBA", "CTI"}
+LIFECYCLE_STAGES = ("detection", "investigation", "escalation", "response", "closure")
+LIFECYCLE_INTERVALS = (
+    ("detection_to_investigation", "detection", "investigation"),
+    ("investigation_to_escalation", "investigation", "escalation"),
+    ("escalation_to_response", "escalation", "response"),
+    ("response_to_closure", "response", "closure"),
+    ("total_lifecycle", "detection", "closure"),
+)
 
 def timestamp(value):
     if not isinstance(value, str):
@@ -77,11 +85,156 @@ def validate(data):
     for c in data["controls"]:
         if not isinstance(c.get("satisfied"), bool) or not isinstance(c.get("critical"), bool):
             raise ValueError("Control flags must be booleans")
+    lifecycles = data.get("lifecycles")
+    if lifecycles is not None:
+        if not isinstance(lifecycles, list) or len(lifecycles) > 10000:
+            raise ValueError("lifecycles must be an array with at most 10,000 rows")
+        cases_by_id = {c["id"]: c for c in data["cases"]}
+        incident_ids, alert_ids, linked_case_ids = set(), set(), set()
+        for lifecycle in lifecycles:
+            if not isinstance(lifecycle, dict):
+                raise ValueError("Each lifecycle must be an object")
+            for key in ("incident_id", "alert_id", "case_id", "source_id"):
+                value = lifecycle.get(key)
+                if not isinstance(value, str) or not value or len(value) > 200:
+                    raise ValueError(f"Lifecycle {key} must be a nonempty string of at most 200 characters")
+            if lifecycle["source_id"] not in source_ids:
+                raise ValueError("Unknown lifecycle source_id")
+            if lifecycle["case_id"] not in cases_by_id:
+                raise ValueError("Unknown lifecycle case_id")
+            if lifecycle["incident_id"] in incident_ids or lifecycle["alert_id"] in alert_ids or lifecycle["case_id"] in linked_case_ids:
+                raise ValueError("Lifecycle incident_id, alert_id and case_id correlations must be unique")
+            incident_ids.add(lifecycle["incident_id"])
+            alert_ids.add(lifecycle["alert_id"])
+            linked_case_ids.add(lifecycle["case_id"])
+            if not isinstance(lifecycle.get("escalation_required", False), bool):
+                raise ValueError("Lifecycle escalation_required must be a boolean")
+            previous = None
+            for stage_name in LIFECYCLE_STAGES:
+                stage = lifecycle.get(stage_name)
+                if stage is None:
+                    if stage_name == "detection":
+                        raise ValueError("Lifecycle detection stage is required")
+                    continue
+                if not isinstance(stage, dict):
+                    raise ValueError(f"Lifecycle {stage_name} stage must be an object or null")
+                occurred = timestamp(stage.get("timestamp"))
+                if occurred > now:
+                    raise ValueError("Future lifecycle timestamps are invalid")
+                if previous is not None and occurred < previous:
+                    raise ValueError("Lifecycle stage timestamps must be chronological")
+                previous = occurred
+                evidence_ref = stage.get("evidence_ref", "")
+                if not isinstance(evidence_ref, str) or len(evidence_ref) > 500:
+                    raise ValueError("Invalid lifecycle evidence_ref")
+                status = stage.get("status")
+                if status is not None and (not isinstance(status, str) or not status or len(status) > 100):
+                    raise ValueError("Lifecycle status must be a nonempty string of at most 100 characters")
+            linked_case = cases_by_id[lifecycle["case_id"]]
+            if timestamp(lifecycle["detection"]["timestamp"]) != timestamp(linked_case["detected_at"]):
+                raise ValueError("Lifecycle detection timestamp must match linked case detected_at")
+            response = lifecycle.get("response")
+            if response is not None and linked_case.get("contained_at") is not None:
+                response_time = timestamp(response["timestamp"])
+                containment_time = timestamp(linked_case["contained_at"])
+                if response_time > containment_time:
+                    raise ValueError("Lifecycle response timestamp cannot follow linked case contained_at")
+                if response.get("status", "").casefold() == "contained" and response_time != containment_time:
+                    raise ValueError("Lifecycle contained response timestamp must match linked case contained_at")
     return now
 
-def assess(data):
+def normalize(data):
+    """Validate input and produce one internal representation for legacy and lifecycle evidence."""
     now = validate(data)
-    sources, techniques, cases, controls = (data[k] for k in ("sources", "techniques", "cases", "controls"))
+    incidents = []
+    for lifecycle in data.get("lifecycles", []):
+        stages = {}
+        for stage_name in LIFECYCLE_STAGES:
+            stage = lifecycle.get(stage_name)
+            stages[stage_name] = None if stage is None else {
+                "timestamp": stage["timestamp"],
+                "evidence_ref": stage.get("evidence_ref", ""),
+                "status": stage.get("status"),
+            }
+        incidents.append({
+            "incident_id": lifecycle["incident_id"],
+            "alert_id": lifecycle["alert_id"],
+            "case_id": lifecycle["case_id"],
+            "source_id": lifecycle["source_id"],
+            "escalation_required": lifecycle.get("escalation_required", False),
+            "stages": stages,
+        })
+    return now, {
+        "mode": "lifecycle" if "lifecycles" in data else "legacy",
+        "sources": data["sources"],
+        "techniques": data["techniques"],
+        "cases": data["cases"],
+        "controls": data["controls"],
+        "incidents": incidents,
+    }
+
+def assess_lifecycles(incidents):
+    findings = []
+    timing_values = {name: [] for name, _, _ in LIFECYCLE_INTERVALS}
+    assessed = []
+
+    def reference_before(incident, missing_stage):
+        position = LIFECYCLE_STAGES.index(missing_stage)
+        for stage_name in reversed(LIFECYCLE_STAGES[:position]):
+            stage = incident["stages"][stage_name]
+            if stage and stage["evidence_ref"]:
+                return stage["evidence_ref"]
+        return ""
+
+    def add_finding(incident, stage, priority, reason):
+        findings.append({
+            "priority": priority,
+            "title": f"Complete {stage} for {incident['incident_id']}",
+            "reason": reason,
+            "evidence_ref": reference_before(incident, stage),
+            "owner": "SOC operations",
+            "incident_id": incident["incident_id"],
+            "alert_id": incident["alert_id"],
+            "case_id": incident["case_id"],
+            "stage": stage,
+        })
+
+    for incident in incidents:
+        stages = incident["stages"]
+        if stages["investigation"] is None:
+            add_finding(incident, "investigation", "Medium", "Alert exists but no linked investigation stage was recorded")
+        if incident["escalation_required"] and stages["investigation"] is not None and stages["escalation"] is None:
+            add_finding(incident, "escalation", "High", "Investigation requires escalation but no linked escalation stage was recorded")
+        if stages["response"] is None:
+            add_finding(incident, "response", "High", "No linked response or containment stage was recorded")
+        if stages["closure"] is None:
+            add_finding(incident, "closure", "Medium", "No linked closure or recovery stage was recorded")
+
+        timings = {}
+        for metric, start_name, end_name in LIFECYCLE_INTERVALS:
+            start, end = stages[start_name], stages[end_name]
+            value = None
+            if start is not None and end is not None:
+                value = round((timestamp(end["timestamp"]) - timestamp(start["timestamp"])).total_seconds() / 60, 1)
+                timing_values[metric].append(value)
+            timings[metric] = value
+        complete = stages["investigation"] is not None and stages["response"] is not None and stages["closure"] is not None and (not incident["escalation_required"] or stages["escalation"] is not None)
+        assessed.append({**incident, "complete": complete, "timing_minutes": timings})
+
+    metrics = {
+        name: {"count": len(values), "average_minutes": round(sum(values) / len(values), 1) if values else None}
+        for name, values in timing_values.items()
+    }
+    return {
+        "incident_count": len(incidents),
+        "complete_incidents": sum(incident["complete"] for incident in assessed),
+        "incidents": assessed,
+        "timing_metrics": metrics,
+    }, findings
+
+def assess(data):
+    now, normalized = normalize(data)
+    sources, techniques, cases, controls = (normalized[k] for k in ("sources", "techniques", "cases", "controls"))
     mean = lambda seq: sum(seq) / len(seq) if seq else 0
     ratio = lambda n, d: n / d if d else 0
     freshness = {}
@@ -130,8 +283,13 @@ def assess(data):
     for s in sources:
         if freshness[s["id"]] < 1:
             findings.append({"priority": "High", "title": f"Restore {s['kind']} freshness", "reason": "No events within 24-hour freshness target", "owner": "Platform engineering", "evidence_ref": s.get("evidence_ref", "")})
+    lifecycle, lifecycle_findings = assess_lifecycles(normalized["incidents"])
+    lifecycle["enabled"] = normalized["mode"] == "lifecycle"
+    findings.extend(lifecycle_findings)
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     scope_contract = {"sources": [(s["id"], s["kind"], s["weight"]) for s in sources], "techniques": [(t["id"], t["source_id"], t["risk_weight"]) for t in techniques], "controls": [(c["id"], c["critical"]) for c in controls]}
+    if lifecycle["enabled"]:
+        scope_contract["lifecycles"] = [(i["incident_id"], i["alert_id"], i["case_id"], i["source_id"], i["escalation_required"]) for i in normalized["incidents"]]
     scope_hash = hashlib.sha256(json.dumps(scope_contract, sort_keys=True).encode()).hexdigest()
     return {
         "scope": data["scope"], "as_of": data["as_of"], "synthetic": data["synthetic"], "policy": POLICY,
@@ -139,6 +297,7 @@ def assess(data):
         "domains": {k: round(v, 1) for k, v in domain.items()},
         "confidence_factors": {"completeness": round(completeness, 3), "freshness": round(fresh, 3), "traceability": round(traceability, 3)},
         "counts": {"sources": len(sources), "techniques": len(techniques), "validated_tests": sum(valid_tests), "cases": len(cases), "reviewed_cases": len(reviewed), "controls": len(controls), "on_time": on_time, "response_denominator": len(eligible)},
+        "lifecycle": lifecycle,
         "findings": sorted(findings, key=lambda f: f["priority"]), "sha256": hashlib.sha256(payload).hexdigest(), "scope_sha256": scope_hash,
         "limitations": ["Declared scope and references require assessor review", "Synthetic demo is not operational effectiveness evidence", "Precision is a quality proxy, not recall", "Confidence is an evidence index, not a statistical probability", "Policy weights and maturity bands require pilot calibration"],
     }
