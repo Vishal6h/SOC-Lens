@@ -1,0 +1,371 @@
+{
+  "scope": "Synthetic SOC A / scope-v1",
+  "as_of": "2026-09-30T12:00:00+00:00",
+  "synthetic": true,
+  "sources": [
+    {
+      "id": "siem-1",
+      "kind": "SIEM",
+      "weight": 5,
+      "completeness": 1.0,
+      "last_seen": "2026-09-30T10:00:00+00:00",
+      "evidence_ref": "demo://telemetry/siem"
+    },
+    {
+      "id": "edr-1",
+      "kind": "EDR",
+      "weight": 5,
+      "completeness": 1.0,
+      "last_seen": "2026-09-30T10:00:00+00:00",
+      "evidence_ref": "demo://telemetry/edr"
+    },
+    {
+      "id": "soar-1",
+      "kind": "SOAR",
+      "weight": 4,
+      "completeness": 1.0,
+      "last_seen": "2026-09-30T10:00:00+00:00",
+      "evidence_ref": "demo://telemetry/soar"
+    },
+    {
+      "id": "ueba-1",
+      "kind": "UEBA",
+      "weight": 3,
+      "completeness": 1.0,
+      "last_seen": "2026-09-30T10:00:00+00:00",
+      "evidence_ref": "demo://telemetry/ueba"
+    },
+    {
+      "id": "cti-1",
+      "kind": "CTI",
+      "weight": 3,
+      "completeness": 1.0,
+      "last_seen": "2026-09-30T10:00:00+00:00",
+      "evidence_ref": "demo://telemetry/cti"
+    }
+  ],
+  "techniques": [
+    {
+      "id": "T1059",
+      "source_id": "siem-1",
+      "risk_weight": 5,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1059"
+    },
+    {
+      "id": "T1078",
+      "source_id": "edr-1",
+      "risk_weight": 5,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1078"
+    },
+    {
+      "id": "T1003",
+      "source_id": "soar-1",
+      "risk_weight": 4,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1003"
+    },
+    {
+      "id": "T1021",
+      "source_id": "ueba-1",
+      "risk_weight": 4,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1021"
+    },
+    {
+      "id": "T1053",
+      "source_id": "cti-1",
+      "risk_weight": 3,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1053"
+    },
+    {
+      "id": "T1105",
+      "source_id": "siem-1",
+      "risk_weight": 3,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1105"
+    },
+    {
+      "id": "T1566",
+      "source_id": "edr-1",
+      "risk_weight": 2,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1566"
+    },
+    {
+      "id": "T1486",
+      "source_id": "soar-1",
+      "risk_weight": 2,
+      "status": "passed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1486"
+    },
+    {
+      "id": "T1110",
+      "source_id": "ueba-1",
+      "risk_weight": 4,
+      "status": "failed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1110"
+    },
+    {
+      "id": "T1041",
+      "source_id": "cti-1",
+      "risk_weight": 3,
+      "status": "failed",
+      "tested_at": "2026-09-27T12:00:00+00:00",
+      "evidence_ref": "demo://validation/T1041"
+    },
+    {
+      "id": "T1070",
+      "source_id": "siem-1",
+      "risk_weight": 3,
+      "status": "untested",
+      "tested_at": null,
+      "evidence_ref": "demo://validation/T1070"
+    },
+    {
+      "id": "T1087",
+      "source_id": "edr-1",
+      "risk_weight": 2,
+      "status": "untested",
+      "tested_at": null,
+      "evidence_ref": "demo://validation/T1087"
+    }
+  ],
+  "cases": [
+    {
+      "id": "CASE-001",
+      "detected_at": "2026-09-28T12:00:00+00:00",
+      "contained_at": "2026-09-28T12:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/001"
+    },
+    {
+      "id": "CASE-002",
+      "detected_at": "2026-09-28T11:00:00+00:00",
+      "contained_at": "2026-09-28T11:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/002"
+    },
+    {
+      "id": "CASE-003",
+      "detected_at": "2026-09-28T10:00:00+00:00",
+      "contained_at": "2026-09-28T10:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/003"
+    },
+    {
+      "id": "CASE-004",
+      "detected_at": "2026-09-28T09:00:00+00:00",
+      "contained_at": "2026-09-28T09:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/004"
+    },
+    {
+      "id": "CASE-005",
+      "detected_at": "2026-09-28T08:00:00+00:00",
+      "contained_at": "2026-09-28T08:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/005"
+    },
+    {
+      "id": "CASE-006",
+      "detected_at": "2026-09-28T07:00:00+00:00",
+      "contained_at": "2026-09-28T07:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/006"
+    },
+    {
+      "id": "CASE-007",
+      "detected_at": "2026-09-28T06:00:00+00:00",
+      "contained_at": "2026-09-28T06:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/007"
+    },
+    {
+      "id": "CASE-008",
+      "detected_at": "2026-09-28T05:00:00+00:00",
+      "contained_at": "2026-09-28T05:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/008"
+    },
+    {
+      "id": "CASE-009",
+      "detected_at": "2026-09-28T04:00:00+00:00",
+      "contained_at": "2026-09-28T04:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/009"
+    },
+    {
+      "id": "CASE-010",
+      "detected_at": "2026-09-28T03:00:00+00:00",
+      "contained_at": "2026-09-28T03:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/010"
+    },
+    {
+      "id": "CASE-011",
+      "detected_at": "2026-09-28T02:00:00+00:00",
+      "contained_at": "2026-09-28T02:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/011"
+    },
+    {
+      "id": "CASE-012",
+      "detected_at": "2026-09-28T01:00:00+00:00",
+      "contained_at": "2026-09-28T01:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/012"
+    },
+    {
+      "id": "CASE-013",
+      "detected_at": "2026-09-28T00:00:00+00:00",
+      "contained_at": "2026-09-28T00:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/013"
+    },
+    {
+      "id": "CASE-014",
+      "detected_at": "2026-09-27T23:00:00+00:00",
+      "contained_at": "2026-09-27T23:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/014"
+    },
+    {
+      "id": "CASE-015",
+      "detected_at": "2026-09-27T22:00:00+00:00",
+      "contained_at": "2026-09-27T22:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/015"
+    },
+    {
+      "id": "CASE-016",
+      "detected_at": "2026-09-27T21:00:00+00:00",
+      "contained_at": "2026-09-27T23:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/016"
+    },
+    {
+      "id": "CASE-017",
+      "detected_at": "2026-09-27T20:00:00+00:00",
+      "contained_at": "2026-09-27T22:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/017"
+    },
+    {
+      "id": "CASE-018",
+      "detected_at": "2026-09-27T19:00:00+00:00",
+      "contained_at": "2026-09-27T21:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/018"
+    },
+    {
+      "id": "CASE-019",
+      "detected_at": "2026-09-27T18:00:00+00:00",
+      "contained_at": "2026-09-27T20:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/019"
+    },
+    {
+      "id": "CASE-020",
+      "detected_at": "2026-09-27T17:00:00+00:00",
+      "contained_at": "2026-09-27T19:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "true_positive",
+      "evidence_ref": "demo://case/020"
+    },
+    {
+      "id": "CASE-021",
+      "detected_at": "2026-09-27T16:00:00+00:00",
+      "contained_at": "2026-09-27T18:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "false_positive",
+      "evidence_ref": "demo://case/021"
+    },
+    {
+      "id": "CASE-022",
+      "detected_at": "2026-09-27T15:00:00+00:00",
+      "contained_at": "2026-09-27T17:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "false_positive",
+      "evidence_ref": "demo://case/022"
+    },
+    {
+      "id": "CASE-023",
+      "detected_at": "2026-09-27T14:00:00+00:00",
+      "contained_at": "2026-09-27T16:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "false_positive",
+      "evidence_ref": "demo://case/023"
+    },
+    {
+      "id": "CASE-024",
+      "detected_at": "2026-09-27T13:00:00+00:00",
+      "contained_at": "2026-09-27T15:30:00+00:00",
+      "sla_minutes": 60,
+      "disposition": "false_positive",
+      "evidence_ref": "demo://case/024"
+    }
+  ],
+  "controls": [
+    {
+      "id": "access-review",
+      "satisfied": true,
+      "critical": true,
+      "evidence_ref": "demo://controls/access-review"
+    },
+    {
+      "id": "playbook-approval",
+      "satisfied": true,
+      "critical": true,
+      "evidence_ref": "demo://controls/playbook-approval"
+    },
+    {
+      "id": "retention-policy",
+      "satisfied": true,
+      "critical": false,
+      "evidence_ref": "demo://controls/retention-policy"
+    },
+    {
+      "id": "incident-review",
+      "satisfied": true,
+      "critical": false,
+      "evidence_ref": "demo://controls/incident-review"
+    },
+    {
+      "id": "recovery-drill",
+      "satisfied": false,
+      "critical": false,
+      "evidence_ref": "demo://controls/recovery-drill"
+    }
+  ]
+}
