@@ -268,15 +268,25 @@ No continuous-integration service is claimed or required by this repository.
 
 ### Assessment Dashboard
 
-<!-- Add screenshot: docs/images/dashboard.png -->
+![SOCLens Assessment Dashboard](docs/images/dashboard.png)
 
-### Incident Lifecycle Drill-down
+The baseline assessment shows the overall supervisory score, evidence confidence,
+maturity gate, assessed evidence, and evidence-backed supervisory summary.
 
-<!-- Add screenshot: docs/images/lifecycle.png -->
+### Incident Lifecycle Assessment
+
+![SOCLens Incident Lifecycle Assessment](docs/images/lifecycle.png)
+
+SOCLens correlates operational evidence across detection, investigation, escalation,
+response, and closure while exposing lifecycle timing and traceability.
 
 ### History & Drift
 
-<!-- Add screenshot: docs/images/history.png -->
+![SOCLens Assessment History and Drift](docs/images/history.png)
+
+Historical assessments show how SOC performance changes over time and highlight
+deterministic supervisory drift between compatible assessments.
+
 
 ## 16. Synthetic data
 
