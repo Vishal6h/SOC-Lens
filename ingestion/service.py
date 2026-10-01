@@ -122,11 +122,19 @@ class ImportService:
             try:
                 item = normalize_record(profile, record, self.limits.max_field_bytes)
                 identifier = self._item_identifier(profile.category, item)
-                if identifier in identifiers:
+                if profile.category != "alerts" and identifier in identifiers:
                     raise MappingError(None, "DUPLICATE_IDENTIFIER", "Identifier is duplicated within this import.")
                 identifiers.add(identifier)
+                provenance = {"import_id": job.import_id, "record_number": record_number,
+                              "file_sha256": job.file_sha256, "mapping_profile": profile.key}
+                if profile.category == "alerts":
+                    item["provenance"] = [provenance]
+                elif profile.category == "response_actions":
+                    item["provenance"] = [provenance]
+                elif profile.category == "cases":
+                    item["lifecycle_patch"]["provenance"] = [provenance]
                 mapped.append(item)
-                if profile.category == "cases" and len(item["lifecycle_patch"]) == 1:
+                if profile.category == "cases" and not any(stage in item["lifecycle_patch"] for stage in ("investigation", "escalation", "response", "closure")):
                     job.issues.append(ImportIssue("WARNING", "NO_LIFECYCLE_STAGES", "Case accepted without optional lifecycle stages.", job.original_filename, record_number))
             except MappingError as exc:
                 job.issues.append(ImportIssue("ERROR", exc.code, exc.reason, job.original_filename, record_number, exc.field))
@@ -141,6 +149,12 @@ class ImportService:
         elif profile.category == "lifecycle_detection":
             job.fragment = {"lifecycle_detections": mapped}
             job.categories_produced = ["lifecycles"]
+        elif profile.category == "alerts":
+            job.fragment = {"alerts": mapped}
+            job.categories_produced = ["alerts", "lifecycles"]
+        elif profile.category == "response_actions":
+            job.fragment = {"response_actions": mapped}
+            job.categories_produced = ["response_actions"]
         else:
             job.fragment = {profile.category: mapped}
             job.categories_produced = [profile.category]
@@ -153,6 +167,10 @@ class ImportService:
             return item["incident_id"]
         if category == "cases":
             return item["case"]["id"]
+        if category == "alerts":
+            return (item.get("source_id"), item.get("external_record_id") or item.get("alert_id"))
+        if category == "response_actions":
+            return item["action_id"]
         return item["id"]
 
     def get(self, import_id):

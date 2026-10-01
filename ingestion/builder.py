@@ -3,6 +3,7 @@ import hashlib
 import json
 
 from engine import validate
+from .correlation import correlate
 
 
 CATEGORIES = ("sources", "techniques", "cases", "controls", "lifecycles")
@@ -46,41 +47,66 @@ def assemble_imports(jobs, *, scope=None, as_of=None, synthetic=None):
         raise ValueError("synthetic must be a boolean")
     document = {"scope": scope, "as_of": as_of, "synthetic": synthetic,
                 "sources": [], "techniques": [], "cases": [], "controls": []}
-    detections, patches = [], []
+    detections, patches, alerts, response_actions = [], [], [], []
     for job in jobs:
         fragment = job.fragment
         for category in REQUIRED_CATEGORIES:
             document[category].extend(fragment.get(category, []))
         detections.extend(fragment.get("lifecycle_detections", []))
         patches.extend(fragment.get("lifecycle_patches", []))
+        alerts.extend(fragment.get("alerts", []))
+        response_actions.extend(fragment.get("response_actions", []))
+    correlation = None
+    if alerts or response_actions:
+        for detection in detections:
+            stage = detection["detection"]
+            alerts.append({
+                "alert_id": detection["alert_id"], "source_id": detection["source_id"],
+                "detected_at": stage["timestamp"], "evidence_ref": stage.get("evidence_ref", ""),
+                "detection_status": stage.get("status"), "incident_id": detection["incident_id"],
+                "case_id": detection["case_id"], "escalation_required": detection.get("escalation_required", False),
+                "provenance": detection.get("provenance", []),
+            })
+        correlation, correlated_lifecycles = correlate(alerts, patches, response_actions)
+        if correlated_lifecycles:
+            document["lifecycles"] = correlated_lifecycles
     patch_by_incident = {}
-    duplicate_patches = set()
-    for patch in patches:
-        incident_id = patch["incident_id"]
-        if incident_id in patch_by_incident:
-            duplicate_patches.add(incident_id)
-        patch_by_incident[incident_id] = patch
-    if duplicate_patches:
-        raise ValueError("Duplicate lifecycle case mapping for incident_id: " + ", ".join(sorted(duplicate_patches)))
+    if correlation is None:
+        duplicate_patches = set()
+        for patch in patches:
+            incident_id = patch["incident_id"]
+            if incident_id in patch_by_incident:
+                duplicate_patches.add(incident_id)
+            patch_by_incident[incident_id] = patch
+        if duplicate_patches:
+            raise ValueError("Duplicate lifecycle case mapping for incident_id: " + ", ".join(sorted(duplicate_patches)))
     lifecycles, unmatched = [], []
-    for detection in detections:
+    for detection in ([] if correlation is not None else detections):
         patch = patch_by_incident.pop(detection["incident_id"], None)
         if patch is None:
             unmatched.append(detection["incident_id"])
             continue
         lifecycle = dict(detection)
-        lifecycle.update({key: value for key, value in patch.items() if key != "incident_id"})
+        lifecycle.update({key: value for key, value in patch.items()
+                          if key in ("investigation", "escalation", "response", "closure")})
         lifecycles.append(lifecycle)
-    unmatched.extend(patch_by_incident)
-    if detections or patches:
+    if correlation is None:
+        unmatched.extend(patch_by_incident)
+    if correlation is None and (detections or patches):
         document["lifecycles"] = lifecycles
     missing = [category for category in REQUIRED_CATEGORIES if not document[category]]
     lifecycle_partial = bool(unmatched)
     coverage = _coverage(document, lifecycle_partial)
     if missing or lifecycle_partial:
-        return {"ready": False, "coverage": coverage, "missing_categories": missing,
+        result = {"ready": False, "coverage": coverage, "missing_categories": missing,
                 "errors": ([{"code": "INCOMPLETE_LIFECYCLE", "reason": "Lifecycle fragments are not fully correlated.",
                              "incident_ids": sorted(set(unmatched))}] if lifecycle_partial else [])}
+        if correlation is not None:
+            result["correlation"] = correlation
+        return result
     validate(document)
-    return {"ready": True, "evidence": document, "canonical_output_sha256": _hash(document),
-            "coverage": coverage, "missing_categories": []}
+    result = {"ready": True, "evidence": document, "canonical_output_sha256": _hash(document),
+              "coverage": coverage, "missing_categories": []}
+    if correlation is not None:
+        result["correlation"] = correlation
+    return result

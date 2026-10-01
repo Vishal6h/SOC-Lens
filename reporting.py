@@ -75,7 +75,7 @@ def supervisor_summary(report, drift=None):
 
 def assessment_manifest(assessment, report, database_schema_version):
     """Build the stable manifest for one persisted assessment."""
-    return {
+    manifest = {
         "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
         "audit_package_version": AUDIT_PACKAGE_VERSION,
         "report_schema_version": report.get("report_schema_version", "legacy-unversioned"),
@@ -97,6 +97,12 @@ def assessment_manifest(assessment, report, database_schema_version):
         ),
         "prototype_notice": "SOCLens supervisory analytics prototype; not certification or real-time monitoring",
     }
+    correlation = report.get("correlation")
+    if isinstance(correlation, dict):
+        manifest["correlation_version"] = correlation.get("version")
+        manifest["correlation_scope_sha256"] = correlation.get("correlation_scope_sha256")
+        manifest["correlation_output_sha256"] = correlation.get("correlation_output_sha256")
+    return manifest
 
 
 def _json_bytes(value):
@@ -115,6 +121,12 @@ def _lifecycle_summary(report):
             "complete": incident.get("complete"),
             "escalation_required": incident.get("escalation_required"),
             "timing_minutes": incident.get("timing_minutes"),
+            "alert_ids": incident.get("alert_ids"),
+            "source_ids": incident.get("source_ids"),
+            "response_actions": incident.get("response_actions"),
+            "recovery_events": incident.get("recovery_events"),
+            "correlation_version": incident.get("correlation_version"),
+            "rule_ids": incident.get("rule_ids"),
         })
     return {
         "enabled": lifecycle.get("enabled") is True,
@@ -134,6 +146,8 @@ def audit_package(assessment, report, database_schema_version, drift=None):
         "lifecycle-summary.json": _json_bytes(_lifecycle_summary(report)),
         "supervisory-summary.json": _json_bytes(supervisor_summary(report, drift)),
     }
+    if isinstance(report.get("correlation"), dict):
+        artifacts["correlation-summary.json"] = _json_bytes(report["correlation"])
     manifest = assessment_manifest(assessment, report, database_schema_version)
     manifest["artifacts"] = {
         name: {"sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content)}

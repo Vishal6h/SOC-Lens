@@ -1,0 +1,2 @@
+alert_id,external_record_id,source_id,detected_at,evidence_ref,escalation_required,incident_id,external_incident_id,case_id,external_case_id,parent_alert_id,detection_status,severity,risk_weight
+ALERT-UNMATCHED-001,EXT-UNMATCHED-001,SRC-SIEM-01,2026-09-29T16:00:00Z,synthetic://correlation/alerts/unmatched,false,,,,,,detected,low,2

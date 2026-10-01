@@ -23,8 +23,10 @@ from assessment_history import (
     trend,
 )
 from operations import APP_VERSION, configure_logging, operational_status
-from reporting import REPORT_SCHEMA_VERSION, audit_package
-from ingestion import ImportService, assemble_imports
+from reporting import REPORT_SCHEMA_VERSION, audit_package, supervisor_summary
+from ingestion import ImportService, PreparationService, assemble_imports
+from ingestion.correlation import enrich_report
+from ingestion.sessions import PreparationNotFound
 from ingestion.staging import ImportNotFound
 
 
@@ -251,6 +253,9 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(exc, ImportNotFound):
             self.reply_error(404, "import_not_found", str(exc))
             return True
+        if isinstance(exc, PreparationNotFound):
+            self.reply_error(404, "preparation_not_found", str(exc))
+            return True
         if isinstance(exc, ComparisonUnavailable):
             body = error_document("comparison_unavailable", str(exc))
             body["comparable"] = False
@@ -308,6 +313,13 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(200 if status["status"] == "ready" else 503, status)
         if parsed.path == "/api/import/profiles" and not parsed.query:
             return self.reply(200, {"profiles": ImportService(CONFIG).profiles()})
+        if parsed.path == "/api/preparation/latest" and not parsed.query:
+            return self.reply(200, PreparationService(CONFIG).latest().document())
+        if parsed.path.startswith("/api/preparation/") and not parsed.query:
+            session_id = unquote(parsed.path[len("/api/preparation/"):])
+            if not session_id or "/" in session_id:
+                raise ValueError("Invalid session_id")
+            return self.reply(200, PreparationService(CONFIG).get(session_id).document())
         if parsed.path.startswith("/api/import/"):
             query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=5)
             suffix = unquote(parsed.path[len("/api/import/"):])
@@ -381,19 +393,31 @@ class Handler(BaseHTTPRequestHandler):
             raw = read_upload_request(self.headers, self.rfile, CONFIG.ingestion_max_upload_bytes, allowed)
             job = ImportService(CONFIG).create(raw, filename=filename, profile_key=profile, source_format=source_format)
             return self.reply(201, job.public_document(), assessment_id=None)
+        if parsed.path == "/api/preparation" and not parsed.query:
+            request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
+            session = PreparationService(CONFIG).create(request)
+            return self.reply(201, session.document())
         if parsed.path == "/api/assessment-build" and not parsed.query:
             request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
             if not isinstance(request, dict):
                 raise ValueError("Assessment build request must be a JSON object")
-            allowed = {"import_ids", "scope", "as_of", "synthetic", "action"}
+            allowed = {"import_ids", "session_id", "scope", "as_of", "synthetic", "action"}
             if set(request) - allowed:
                 raise ValueError("Unexpected assessment build field(s): " + ", ".join(sorted(set(request) - allowed)))
-            import_ids = request.get("import_ids")
+            session_id = request.get("session_id")
+            if session_id is not None:
+                if "import_ids" in request or any(name in request for name in ("scope", "as_of", "synthetic")):
+                    raise ValueError("A session build must use its persisted preparation fields")
+                session = PreparationService(CONFIG).get(session_id)
+                import_ids, scope, as_of, synthetic = session.import_ids, session.scope, session.as_of, session.synthetic
+            else:
+                import_ids = request.get("import_ids")
+                scope, as_of, synthetic = request.get("scope"), request.get("as_of"), request.get("synthetic")
             if not isinstance(import_ids, list) or not import_ids or len(import_ids) > CONFIG.ingestion_max_active_imports:
                 raise ValueError("import_ids must be a nonempty bounded array")
             service = ImportService(CONFIG)
             jobs = [service.get(import_id) for import_id in import_ids]
-            result = assemble_imports(jobs, scope=request.get("scope"), as_of=request.get("as_of"), synthetic=request.get("synthetic"))
+            result = assemble_imports(jobs, scope=scope, as_of=as_of, synthetic=synthetic)
             action = request.get("action", "preview")
             if action not in {"preview", "assess"}:
                 raise ValueError("action must be preview or assess")
@@ -405,6 +429,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(422, body)
             evidence = result["evidence"]
             report = assess(evidence)
+            if result.get("correlation"):
+                enrich_report(report, result["correlation"])
+                report["supervisory_summary"] = supervisor_summary(report)
             report["ingestion_provenance"] = {
                 "ingested_at": datetime.now(timezone.utc).isoformat(),
                 "canonical_evidence_sha256": result["canonical_output_sha256"],
@@ -413,7 +440,12 @@ class Handler(BaseHTTPRequestHandler):
                              "mapping_profile_id": job.mapping_profile_id,
                              "mapping_profile_version": job.mapping_profile_version} for job in jobs],
             }
+            if result.get("correlation"):
+                report["ingestion_provenance"]["correlation_version"] = result["correlation"]["version"]
+                report["ingestion_provenance"]["correlation_output_sha256"] = result["correlation"]["correlation_output_sha256"]
             assessment_id = save(evidence, report, origin="ingestion")
+            if session_id is not None:
+                PreparationService(CONFIG).mark_complete(session_id)
             return self.reply(200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id)
         return self.reply_error(404, "not_found", "Not found")
 
@@ -424,6 +456,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
         parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/preparation/") and not parsed.query:
+            session_id = unquote(parsed.path[len("/api/preparation/"):])
+            if not session_id or "/" in session_id:
+                raise ValueError("Invalid session_id")
+            PreparationService(CONFIG).delete(session_id)
+            return self.reply(200, {"deleted": True, "session_id": session_id})
         if not parsed.path.startswith("/api/import/") or parsed.query:
             return self.reply_error(404, "not_found", "Not found")
         import_id = unquote(parsed.path[len("/api/import/"):])
@@ -432,14 +470,28 @@ class Handler(BaseHTTPRequestHandler):
         ImportService(CONFIG).delete(import_id)
         return self.reply(200, {"deleted": True, "import_id": import_id})
 
+    def do_PUT(self):
+        return self._dispatch(self._do_PUT)
+
+    def _do_PUT(self):
+        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+            return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/preparation/") or parsed.query:
+            return self.reply_error(404, "not_found", "Not found")
+        session_id = unquote(parsed.path[len("/api/preparation/"):])
+        if not session_id or "/" in session_id:
+            raise ValueError("Invalid session_id")
+        request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
+        return self.reply(200, PreparationService(CONFIG).update(session_id, request).document())
+
     def method_not_allowed(self):
         return self.reply(
             405,
             error_document("method_not_allowed", f"Method {self.command} is not supported"),
-            headers={"Allow": "GET, POST, DELETE"},
+            headers={"Allow": "GET, POST, PUT, DELETE"},
         )
 
-    do_PUT = method_not_allowed
     do_PATCH = method_not_allowed
     do_OPTIONS = method_not_allowed
     do_HEAD = method_not_allowed

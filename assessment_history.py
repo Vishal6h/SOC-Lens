@@ -325,6 +325,15 @@ def compatibility(before, after):
         reasons.append("scope_sha256 differs")
     if before.get("scope") != after.get("scope"):
         reasons.append("scope identifier differs")
+    before_correlation = before.get("correlation") if isinstance(before.get("correlation"), dict) else None
+    after_correlation = after.get("correlation") if isinstance(after.get("correlation"), dict) else None
+    if bool(before_correlation) != bool(after_correlation):
+        reasons.append("correlation model differs")
+    elif before_correlation and after_correlation:
+        if before_correlation.get("version") != after_correlation.get("version"):
+            reasons.append("correlation version differs")
+        if before_correlation.get("correlation_scope_sha256") != after_correlation.get("correlation_scope_sha256"):
+            reasons.append("correlation scope differs")
     return not reasons, reasons
 
 
@@ -418,7 +427,9 @@ def compare_stored(path, before_id, after_id):
             break
         if (record["policy_version"] == before_stored["assessment"]["policy_version"]
                 and record["scope_sha256"] == before_stored["assessment"]["scope_sha256"]):
-            prior_reports.append(get_assessment(path, record["assessment_id"])["report"])
+            candidate = get_assessment(path, record["assessment_id"])["report"]
+            if compatibility(candidate, before)[0]:
+                prior_reports.append(candidate)
     result = compare_reports(before, after, prior_reports)
     result["before_assessment_id"] = before_id
     result["after_assessment_id"] = after_id
@@ -442,12 +453,16 @@ def trend(path, scope):
     if not all_records:
         return {"scope": scope, "points": [], "summary": None, "excluded_incompatible": 0}
     latest = all_records[-1]
-    records = [
-        record for record in all_records
-        if record["policy_version"] == latest["policy_version"]
-        and record["scope_sha256"] == latest["scope_sha256"]
-    ]
-    reports = [get_assessment(path, record["assessment_id"])["report"] for record in records]
+    latest_report = get_assessment(path, latest["assessment_id"])["report"]
+    compatible_pairs = []
+    for record in all_records:
+        if record["policy_version"] != latest["policy_version"] or record["scope_sha256"] != latest["scope_sha256"]:
+            continue
+        candidate = get_assessment(path, record["assessment_id"])["report"]
+        if compatibility(candidate, latest_report)[0]:
+            compatible_pairs.append((record, candidate))
+    records = [record for record, _ in compatible_pairs]
+    reports = [report for _, report in compatible_pairs]
     points = []
     for index, record in enumerate(records):
         point = dict(record)

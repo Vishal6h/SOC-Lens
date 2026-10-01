@@ -1,0 +1,4 @@
+action_id,action_type,action_at,evidence_ref,canonical_response,incident_id,case_id,source_id,status,milestone
+ACTION-ISOLATE-001,isolate endpoint,2026-09-29T12:20:00Z,synthetic://correlation/actions/isolate,false,INC-MULTI-001,CASE-MULTI-001,SRC-EDR-01,completed,response
+ACTION-CONTAIN-001,containment,2026-09-29T12:30:00Z,synthetic://correlation/actions/contain,true,INC-MULTI-001,CASE-MULTI-001,SRC-SIEM-01,completed,response
+ACTION-RECOVER-001,restore endpoint,2026-09-29T12:50:00Z,synthetic://correlation/actions/recover,false,INC-MULTI-001,CASE-MULTI-001,SRC-EDR-01,completed,recovery

@@ -1,0 +1,4 @@
+alert_id,external_record_id,source_id,detected_at,evidence_ref,escalation_required,incident_id,external_incident_id,case_id,external_case_id,parent_alert_id,detection_status,severity,risk_weight
+ALERT-MA-001,EXT-ALERT-001,SRC-SIEM-01,2026-09-29T12:00:00Z,synthetic://correlation/alerts/001,true,INC-MULTI-001,EXT-INC-001,CASE-MULTI-001,EXT-CASE-001,,detected,high,4
+ALERT-MA-002,EXT-ALERT-002,SRC-EDR-01,2026-09-29T12:02:00Z,synthetic://correlation/alerts/002,true,INC-MULTI-001,EXT-INC-001,CASE-MULTI-001,EXT-CASE-001,ALERT-MA-001,detected,medium,3
+ALERT-MA-003,EXT-ALERT-003,SRC-SIEM-01,2026-09-29T12:04:00Z,synthetic://correlation/alerts/003,true,INC-MULTI-001,EXT-INC-001,CASE-MULTI-001,EXT-CASE-001,ALERT-MA-001,detected,high,4

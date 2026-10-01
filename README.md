@@ -242,6 +242,8 @@ for the active assessment context.
 | `operations.py` | Structured logging and bounded operational readiness diagnostics |
 | `reporting.py` | Supervisory summaries, manifests, and deterministic audit packages |
 | `ingestion/` | Offline adapters, mappings, normalization, staging, previews, and canonical assembly |
+| `ingestion/correlation.py` | Versioned deterministic alert identity, incident correlation, conflicts, and report enrichment |
+| `ingestion/sessions.py` | Persisted local multi-file preparation sessions and cleanup |
 | `server.py` | Local HTTP server and bounded assessment, ingestion, history, and audit APIs |
 | `make_demo.py` | Recreates deterministic synthetic fixtures |
 | `index.html` | Accessible application shell and eight section structures |
@@ -253,6 +255,7 @@ for the active assessment context.
 | `test_foundation.py` | Configuration, status, error, runtime, backup, restore, and regression tests |
 | `test_frontend.py` | DOM integrity, application routes, hash navigation, and semantic-control tests |
 | `test_ingestion.py` | CSV/JSON adapters, profiles, staging, assembly, API, and ingestion regression tests |
+| `test_correlation.py` | Alert identity, correlation, conflicts, scoring safety, sessions, and compatibility tests |
 | `data/` | Synthetic baseline, degraded, history, generated result, and ingestion fixtures |
 
 ## 12. How to run
@@ -423,7 +426,9 @@ Supported offline profiles are:
 - Generic Telemetry / Source Health Export (`sources`)
 - Generic Detection Validation Export (`techniques`)
 - Generic SIEM Alert Export (lifecycle detection and explicit identifiers)
+- Generic Correlated Alert Export (many-alert incident/case evidence)
 - Generic Case Management Export (`cases` and optional lifecycle stages)
+- Generic Response Action Export (response/recovery evidence)
 - Generic Control Evidence Export (`controls`)
 - canonical SOCLens JSON passthrough
 
@@ -463,6 +468,76 @@ SOCLens does not yet connect live to external SIEM/EDR/SOAR systems. Phase 3 doe
 provide credentials, polling, archives, fuzzy or AI-assisted mapping, multi-alert
 correlation, or official vendor compatibility.
 
+### Advanced correlation and case modeling
+
+Phase 4 correlation is deterministic and evidence-driven. It does not use behavioral,
+text-similarity, probabilistic, AI, or ML correlation. `soclens-correlation-1.0`
+recognizes only explicit source evidence:
+
+1. declared `incident_id`;
+2. stable external incident identifier;
+3. declared `case_id`;
+4. stable external case identifier; and
+5. an explicit parent-alert relationship.
+
+Timestamp proximity, severity similarity, source name, and descriptive text are never
+correlation rules.
+
+#### Alert identity
+
+When `external_record_id` is present, alert identity is the SHA-256 of canonicalized
+`source_id` plus that stable external identifier. Otherwise it is the SHA-256 of the
+canonicalized source ID, source alert ID, detected timestamp, and evidence reference.
+Generated identities use the `alert-<sha256>` form. Display labels are not used alone.
+
+The `Generic Correlated Alert Export` profile accepts optional incident, case,
+external, parent, severity, and risk metadata. Every normalized alert retains its
+source import ID, source-file hash, mapping profile, and source record number.
+
+#### Incident and lifecycle compatibility
+
+A correlated incident retains all alert IDs and identities, contributing source IDs,
+primary and related case IDs, first/latest detection times, rule IDs and reasons,
+response actions, recovery events, supporting evidence, and source imports. The
+adapter emits at most one legacy-compatible lifecycle row per incident/case obligation.
+Consequently, three alerts in one incident do not create three response credits or
+three missing-stage penalties.
+
+The original `lifecycles[]` input contract bypasses advanced correlation and retains
+its historical scoring and hashes. For correlated evidence, the case lifecycle remains
+the scoring milestone. An explicit case response stage takes precedence; if it is
+absent, exactly one response action marked `canonical_response=true` may supply that
+milestone. Recovery is retained for explanation but is not scored by
+`sat-sa-demo-2.0`.
+
+#### Conflicts, unmatched evidence, and negative space
+
+Contradictory stable alert identities, incompatible case/incident associations,
+ambiguous parents, conflicting lifecycle exports, escalation disagreement, and
+multiple canonical response actions are never silently overwritten. They appear in
+correlation output and unsafe records are excluded from the scoring adapter. Alerts
+without explicit correlation evidence remain unmatched.
+
+Deterministic informational findings identify incident alerts without a case,
+declared cases without correlated alerts, and declared case associations without case
+lifecycle evidence. Existing engine findings remain one per incident lifecycle and
+are enriched with every related alert ID.
+
+#### Preparation sessions and provenance
+
+Preparation sessions persist under `runtime/imports/sessions/<session-id>/`. They
+reference staged import IDs and retain scope, evidence date, synthetic classification,
+coverage, correlation readiness, timestamps, and state without duplicating raw files.
+The Assessments page restores the latest active session after refresh. Sessions can be
+deleted or age-cleaned independently and are marked complete after assessment.
+
+Correlated reports and audit packages contain the correlation version, deterministic
+scope/output hashes, rule explanations, conflicts, unmatched alerts, and source
+lineage. Random local import IDs remain visible for audit but are excluded from the
+deterministic correlation-output hash. History comparison requires matching policy,
+canonical scope, correlation version, and correlation scope. Legacy history remains
+compatible only with other legacy history.
+
 ## 13. Testing
 
 Run the complete Python test suite:
@@ -471,8 +546,9 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **125 tests passing**, including production-foundation,
-application-shell, ingestion, staging, mapping, assembly, and regression coverage.
+Current validated status: **146 tests passing**, including production-foundation,
+application-shell, ingestion, correlation, preparation-session, history-compatibility,
+scoring-safety, and regression coverage.
 
 Validate the frontend JavaScript syntax:
 
@@ -544,13 +620,13 @@ It supports human supervisory assessment. Scores, findings, evidence references,
 - No encryption at rest
 - No live SIEM, EDR, or vendor connectors
 - Evidence references are opaque identifiers and are not retrieved
-- One alert is correlated per lifecycle incident
+- Correlation uses explicit identifiers and relationships only; heuristic correlation is not provided
 - Fixed prototype policy weights and timing thresholds
 - SQLite data and local exports require appropriate workstation-level protection
 - The overall score is the primary graphed trend
 - Trend retrieval is capped at 500 observations
 
-The prototype also does not provide peer benchmarking, protected evidence retention, multi-alert incident correlation, forecasting, ML anomaly detection, or AI/LLM decision-making.
+The prototype also does not provide peer benchmarking, protected evidence retention, heuristic cross-entity correlation, forecasting, ML anomaly detection, or AI/LLM decision-making.
 
 ## 19. Post-hackathon roadmap
 

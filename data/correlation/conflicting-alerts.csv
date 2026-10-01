@@ -1,0 +1,4 @@
+alert_id,external_record_id,source_id,detected_at,evidence_ref,escalation_required,incident_id,external_incident_id,case_id,external_case_id,parent_alert_id,detection_status,severity,risk_weight
+ALERT-CONFLICT-001,EXT-DUPLICATE-001,SRC-SIEM-01,2026-09-29T17:00:00Z,synthetic://correlation/alerts/conflict-a,true,INC-CONFLICT-A,EXT-CONFLICT,CASE-CONFLICT,EXT-CASE-CONFLICT,,detected,high,4
+ALERT-CONFLICT-001,EXT-DUPLICATE-001,SRC-SIEM-01,2026-09-29T17:05:00Z,synthetic://correlation/alerts/conflict-b,true,INC-CONFLICT-B,EXT-CONFLICT,CASE-CONFLICT,EXT-CASE-CONFLICT,,detected,high,4
+ALERT-CONFLICT-002,EXT-CONFLICT-002,SRC-EDR-01,2026-09-29T17:06:00Z,synthetic://correlation/alerts/conflict-c,true,INC-CONFLICT-B,EXT-CONFLICT-OTHER,CASE-CONFLICT,EXT-CASE-CONFLICT,,detected,medium,3

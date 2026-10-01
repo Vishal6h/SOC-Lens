@@ -177,7 +177,8 @@ code{color:var(--teal);font-size:10px;word-break:break-all;user-select:all}
 .incident-identity,.finding-identity{display:flex;flex-direction:column;gap:4px;min-width:150px}
 .incident-identity strong,.finding-identity strong{font-size:13px}
 .incident-identity small,.finding-identity small{font-size:9px}
-.incident-overview{display:grid;grid-template-columns:repeat(7,minmax(72px,1fr));align-items:center;gap:7px;flex:1}
+.incident-overview{display:grid;grid-template-columns:repeat(8,minmax(72px,1fr));align-items:center;gap:7px;flex:1}
+.incident-context{margin-top:14px}.incident-context>.eyebrow{margin-bottom:8px}
 .overview-cell{display:flex;flex-direction:column;gap:4px;min-width:0}
 .overview-cell small{font-size:7px;letter-spacing:.5px;text-transform:uppercase}
 .overview-cell b{font-size:9px;overflow-wrap:anywhere}

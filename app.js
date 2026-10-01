@@ -25,6 +25,7 @@ let serviceState=null;
 let importProfiles=[];
 let stagedImports=[];
 let buildReady=false;
+let preparationSession=null;
 let historyState=null;
 let historyRequest=0;
 let renderedPages=new Set();
@@ -431,15 +432,19 @@ function incidentDetails(incident,index){
   details.dataset.incidentId=incident.incident_id||'';
   const summary=document.createElement('summary');
   const identity=add('span','','incident-identity');
-  identity.append(add('strong',incident.incident_id||'Unknown incident'),add('small',(incident.case_id||'No case')+' · '+(incident.source_id||'No source')));
+  const alertIds=Array.isArray(incident.alert_ids)?incident.alert_ids:[incident.alert_id].filter(Boolean);
+  const sourceIds=Array.isArray(incident.source_ids)?incident.source_ids:[incident.source_id].filter(Boolean);
+  const caseId=incident.primary_case_id||incident.case_id;
+  const priorityFindings=(current&&Array.isArray(current.findings)?current.findings:[]).filter(finding=>finding.incident_id===incident.incident_id&&['high','critical'].includes(String(finding.priority||'').toLowerCase())).length;
+  identity.append(add('strong',incident.incident_id||'Unknown incident'),add('small',(caseId||'No case')+' · '+alertIds.length+' alert'+(alertIds.length===1?'':'s')));
   const overview=add('span','','incident-overview');
   overview.append(
-    overviewCell('Completion',incident.complete?'Complete':'Incomplete'),
+    overviewCell('Alerts',alertIds.length),overviewCell('Sources',sourceIds.length),overviewCell('Completion',incident.complete?'Complete':'Incomplete'),
     overviewCell('Investigation',title(stageOutcome(incident,'investigation'))),
     overviewCell('Escalation',title(stageOutcome(incident,'escalation'))),
     overviewCell('Response',title(stageOutcome(incident,'response'))),
     overviewCell('Closure',title(stageOutcome(incident,'closure'))),
-    overviewCell('Total time',minutes(incident.timing_minutes&&incident.timing_minutes.total_lifecycle))
+    overviewCell('Priority Findings',priorityFindings),overviewCell('Total time',minutes(incident.timing_minutes&&incident.timing_minutes.total_lifecycle))
   );
   summary.append(identity,overview);details.append(summary);
 
@@ -451,12 +456,28 @@ function incidentDetails(incident,index){
   for(const [key,label] of Object.entries(TIMINGS))timings.append(summaryCard(label,minutes(incident.timing_minutes&&incident.timing_minutes[key])));
   body.append(timings);
 
+  if(alertIds.length){
+    const related=add('section','','incident-context');related.append(add('p','Related Alerts','eyebrow'));
+    const chips=add('div','','timing-strip');for(const alertId of alertIds)chips.append(badge(alertId,'recorded'));related.append(chips);body.append(related);
+  }
+  const actions=Array.isArray(incident.response_actions)?incident.response_actions:[];
+  if(actions.length){
+    const section=add('section','','incident-context');section.append(add('p','Response Actions','eyebrow'));
+    const grid=add('div','','technical-grid');for(const action of actions){const card=add('article','','stage-technical');card.append(add('h3',action.action_type||'Response action'),factList([['Time',action.timestamp],['Status',action.status],['Milestone',action.milestone],['Canonical response',action.canonical_response?'Yes':'No']]));const evidence=evidenceReference(action.evidence_ref);if(evidence)card.append(evidence);grid.append(card);}section.append(grid);body.append(section);
+  }
+  const recovery=Array.isArray(incident.recovery_events)?incident.recovery_events:[];
+  if(recovery.length)body.append(add('p',`${recovery.length} explicit recovery event${recovery.length===1?' was':'s were'} recorded after response.`,'empty-inline'));
+  if(Array.isArray(incident.reasons)&&incident.reasons.length){const explanation=add('section','','incident-context');explanation.append(add('p','Correlation Explanation','eyebrow'));const list=document.createElement('ul');list.className='rule-list';incident.reasons.forEach(reason=>list.append(add('li',reason)));explanation.append(list);body.append(explanation);}
+
   const technical=add('details','','panel disclosure');
   technical.append(add('summary','Show technical details'));
   const technicalContent=add('div','','technical-content');
   technicalContent.append(factList([
-    ['Incident ID',incident.incident_id],['Alert ID',incident.alert_id],['Case ID',incident.case_id],
-    ['Source ID',incident.source_id],['Escalation required',incident.escalation_required?'Yes':'No'],['Correlation complete',incident.complete?'Yes':'No']
+    ['Incident ID',incident.incident_id],['Primary alert ID',incident.alert_id],['Alert IDs',alertIds.join(', ')],['Case ID',caseId],
+    ['Source IDs',sourceIds.join(', ')],['First detection',incident.first_detection_at],['Latest related detection',incident.latest_detection_at],
+    ['Correlation version',incident.correlation_version],['Correlation strength',incident.correlation_strength],
+    ['Correlation rules',(incident.rule_ids||[]).join(', ')],['Source import IDs',(incident.source_import_ids||[]).join(', ')],
+    ['Escalation required',incident.escalation_required?'Yes':'No'],['Correlation complete',incident.complete?'Yes':'No']
   ]));
   const stages=add('div','','technical-grid');
   STAGES.forEach(stage=>stages.append(technicalStage(incident,stage)));
@@ -466,12 +487,14 @@ function incidentDetails(incident,index){
 
 function renderIncidents(report){
   const lifecycle=report.lifecycle||{};
-  const incidents=Array.isArray(lifecycle.incidents)?lifecycle.incidents:[];
+  const correlation=report.correlation||{};
+  const assessedIncidents=Array.isArray(lifecycle.incidents)?lifecycle.incidents:[];
+  const incidents=assessedIncidents.length?assessedIncidents:(Array.isArray(correlation.incidents)?correlation.incidents:[]);
   const summary=el('incidents-summary');
   const list=el('incidents-list');
   const technicalOverview=el('incidents-technical-overview');
   summary.replaceChildren();list.replaceChildren();
-  if(!lifecycle.enabled){
+  if(!lifecycle.enabled&&!report.correlation){
     summary.hidden=true;technicalOverview.hidden=true;
     list.append(add('p','Incident process evidence was not provided. This legacy assessment uses source, technique, case, and control evidence only.','empty-state'));
     return;
@@ -482,16 +505,24 @@ function renderIncidents(report){
     return;
   }
   summary.hidden=false;
-  technicalOverview.hidden=false;
+  technicalOverview.hidden=!lifecycle.enabled;
   const incomplete=Math.max(0,(lifecycle.incident_count||incidents.length)-(lifecycle.complete_incidents||0));
   const components=lifecycle.scoring&&lifecycle.scoring.components||{};
   summary.append(
     summaryCard('Assessed Incidents',lifecycle.incident_count||incidents.length),
     summaryCard('Complete',lifecycle.complete_incidents||0),
     summaryCard('Incomplete',incomplete),
-    summaryCard('Delayed or Missing',Object.values(components).reduce((sum,component)=>sum+(component.delayed||0)+(component.missing||0),0))
+    summaryCard('Delayed or Missing',Object.values(components).reduce((sum,component)=>sum+(component.delayed||0)+(component.missing||0),0)),
+    summaryCard('Unmatched Alerts',(correlation.unmatched_alerts||[]).length),summaryCard('Correlation Conflicts',(correlation.conflicts||[]).length)
   );
   renderIncidentTechnicalSummary(report);
+  if((correlation.conflicts||[]).length||(correlation.unmatched_alerts||[]).length){
+    const notice=add('article','','panel compact-panel');notice.append(add('p','Correlation review required','eyebrow'));
+    const list=document.createElement('ul');list.className='rule-list';
+    (correlation.conflicts||[]).forEach(conflict=>list.append(add('li',`${conflict.code}: ${conflict.reason}`)));
+    (correlation.unmatched_alerts||[]).forEach(alert=>list.append(add('li',`${alert.alert_id||alert.identity}: no explicit incident, case, or parent association was supplied.`)));
+    notice.append(list);el('incidents-list').append(notice);
+  }
   incidents.forEach((incident,index)=>list.append(incidentDetails(incident,index)));
 }
 
@@ -579,12 +610,15 @@ function findingDetails(finding){
   summary.append(identity,meta);details.append(summary);
   const body=add('div','','finding-body');
   const explanation=add('div','','finding-explanation');
+  const relatedAlerts=Array.isArray(finding.alert_ids)?finding.alert_ids:[];
+  const happened=relatedAlerts.length>1?`${relatedAlerts.length} alerts were correlated to ${finding.incident_id}, and ${friendlyFindingTitle(finding).toLowerCase()}.`:friendlyFindingTitle(finding);
   const blocks=[
-    ['What happened',friendlyFindingTitle(finding)],['Why it matters',finding.reason||'The configured requirement was not met.'],
+    ['What happened',happened],['Why it matters',finding.reason||'The configured requirement was not met.'],
     ['Expected target',expectedFindingResult(finding)],['Observed result',observedFindingResult(finding)],
     ['Affected incident',finding.incident_id||finding.case_id||'Not incident-specific'],['Supporting evidence',finding.evidence_ref||'No evidence identifier supplied']
   ];
   for(const [heading,text] of blocks){const block=add('div','','explanation-block');block.append(add('h3',heading),add('p',text));explanation.append(block);}
+  if(relatedAlerts.length){const block=add('div','','explanation-block');block.append(add('h3','Related alerts'),add('p',relatedAlerts.join(', ')));explanation.append(block);}
   body.append(explanation);
   if(finding.incident_id){
     const button=add('button','Open affected incident');button.type='button';button.onclick=()=>openIncident(finding.incident_id);body.append(button);
@@ -910,7 +944,7 @@ function renderCoverage(coverage){
 
 function renderLocalCoverage(){
   const coverage={};for(const category of ['sources','techniques','cases','controls','lifecycles'])coverage[category]={state:'missing',records:0};
-  for(const job of stagedImports.filter(item=>item.status==='ready'))for(const category of job.categories_produced||[]){coverage[category].state='staged';coverage[category].records+=job.accepted_records||0;}
+  for(const job of stagedImports.filter(item=>item.status==='ready'))for(const category of job.categories_produced||[]){if(coverage[category]){coverage[category].state='staged';coverage[category].records+=job.accepted_records||0;}}
   renderCoverage(coverage);buildReady=false;el('run-import-assessment').disabled=true;
   el('build-message').textContent=stagedImports.length?'Check combined evidence to validate correlations and required coverage.':'Upload evidence to begin a multi-file assessment.';
 }
@@ -929,19 +963,53 @@ async function stageImport(){
   try{
     setStatus('Validating and mapping evidence…');const query=new URLSearchParams({profile:profile.key,filename:file.name,format:sourceFormat});
     const response=await fetch('/api/import?'+query,{method:'POST',headers:{'Content-Type':sourceFormat==='csv'?'text/csv':'application/json'},body:file});const body=await response.json();
-    if(!response.ok)throw Error(apiErrorMessage(body,'Evidence import failed'));stagedImports.push(body);renderImportWorkspace();setStatus(body.status==='ready'?'Evidence mapped and ready for combined validation.':'Evidence contains errors; review the import preview.',body.status!=='ready');
+    if(!response.ok)throw Error(apiErrorMessage(body,'Evidence import failed'));stagedImports.push(body);renderImportWorkspace();await syncPreparationSession();setStatus(body.status==='ready'?'Evidence mapped and ready for combined validation.':'Evidence contains errors; review the import preview.',body.status!=='ready');
   }catch(error){setStatus(error.message,true);}finally{el('upload').value='';}
 }
 
 async function removeImport(importId){
-  try{const response=await fetch('/api/import/'+encodeURIComponent(importId),{method:'DELETE'});const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Import could not be removed'));stagedImports=stagedImports.filter(job=>job.import_id!==importId);renderImportWorkspace();setStatus('Staged import removed.');}catch(error){setStatus(error.message,true);}
+  try{stagedImports=stagedImports.filter(job=>job.import_id!==importId);await syncPreparationSession();const response=await fetch('/api/import/'+encodeURIComponent(importId),{method:'DELETE'});const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Import could not be removed'));renderImportWorkspace();setStatus('Staged import removed.');}catch(error){setStatus(error.message,true);}
 }
 
 async function clearImports(){for(const job of [...stagedImports])await removeImport(job.import_id);}
 
 function assessmentBuildRequest(action){
+  if(preparationSession)return {session_id:preparationSession.session_id,action};
   const local=el('build-as-of').value;const asOf=local?new Date(local).toISOString():null;
   return {import_ids:stagedImports.map(job=>job.import_id),scope:el('build-scope').value.trim(),as_of:asOf,synthetic:el('build-synthetic').checked,action};
+}
+
+function preparationValues(){
+  const local=el('build-as-of').value;
+  return {import_ids:stagedImports.map(job=>job.import_id),scope:el('build-scope').value.trim(),
+          as_of:local?new Date(local).toISOString():null,synthetic:el('build-synthetic').checked};
+}
+
+async function createPreparationSession(){
+  const response=await fetch('/api/preparation',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const body=await response.json();
+  if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be created'));preparationSession=body;return body;
+}
+
+async function syncPreparationSession(){
+  try{
+    if(!preparationSession)await createPreparationSession();
+    const response=await fetch('/api/preparation/'+encodeURIComponent(preparationSession.session_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(preparationValues())});const body=await response.json();
+    if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be saved'));preparationSession=body;
+    if(body.coverage)renderCoverage(body.coverage);buildReady=body.status==='ready';el('run-import-assessment').disabled=!buildReady;
+    if(body.correlation_readiness&&body.correlation_readiness!=='not_evaluated')el('build-message').textContent=`Preparation saved · correlation ${title(body.correlation_readiness)}`;
+  }catch(error){setStatus(error.message,true);}
+}
+
+async function loadPreparationSession(){
+  try{
+    const response=await fetch('/api/preparation/latest');
+    if(response.status===404){await createPreparationSession();return;}
+    const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be restored'));preparationSession=body;
+    el('build-scope').value=body.scope||'';el('build-synthetic').checked=body.synthetic===true;
+    if(body.as_of){const value=new Date(body.as_of);if(!Number.isNaN(value.getTime())){value.setMinutes(value.getMinutes()-value.getTimezoneOffset());el('build-as-of').value=value.toISOString().slice(0,16);}}
+    const restored=await Promise.all((body.import_ids||[]).map(id=>fetchJson('/api/import/'+encodeURIComponent(id),'A staged import could not be restored')));stagedImports=restored;renderImportWorkspace();
+    if(body.coverage)renderCoverage(body.coverage);buildReady=body.status==='ready';el('run-import-assessment').disabled=!buildReady;setStatus('Preparation session restored.');
+  }catch(error){setStatus(error.message,true);}
 }
 
 async function requestAssessmentBuild(action){
@@ -951,11 +1019,11 @@ async function requestAssessmentBuild(action){
 }
 
 async function previewAssessmentBuild(){
-  try{setStatus('Checking combined evidence…');const {body}=await requestAssessmentBuild('preview');renderCoverage(body.coverage);buildReady=body.ready===true;el('run-import-assessment').disabled=!buildReady;el('build-message').textContent=buildReady?'All required evidence categories and lifecycle correlations are valid.':`Evidence is incomplete${body.missing_categories&&body.missing_categories.length?`: ${body.missing_categories.map(title).join(', ')}`:'.'}`;setStatus(buildReady?'Combined evidence is ready for assessment.':'Combined evidence needs attention.',!buildReady);}catch(error){buildReady=false;el('run-import-assessment').disabled=true;setStatus(error.message,true);el('build-message').textContent=error.message;}
+  try{setStatus('Checking combined evidence…');await syncPreparationSession();const {body}=await requestAssessmentBuild('preview');renderCoverage(body.coverage);buildReady=body.ready===true;el('run-import-assessment').disabled=!buildReady;const correlation=body.correlation&&body.correlation.status;el('build-message').textContent=buildReady?`All required evidence is valid${correlation?` · correlation ${title(correlation)}`:''}.`:`Evidence is incomplete${body.missing_categories&&body.missing_categories.length?`: ${body.missing_categories.map(title).join(', ')}`:'.'}`;setStatus(buildReady?'Combined evidence is ready for assessment.':'Combined evidence needs attention.',!buildReady);}catch(error){buildReady=false;el('run-import-assessment').disabled=true;setStatus(error.message,true);el('build-message').textContent=error.message;}
 }
 
 async function runImportedAssessment(){
-  try{setStatus('Running assessment from mapped evidence…');const {body,response}=await requestAssessmentBuild('assess');historyCache.delete(body.scope);mode='import';setAssessment(body,response.headers.get('X-Assessment-ID'));window.location.hash='#assessments';setStatus('Imported evidence assessed and stored locally.');}catch(error){setStatus(error.message,true);}
+  try{setStatus('Running assessment from mapped evidence…');await syncPreparationSession();const {body,response}=await requestAssessmentBuild('assess');historyCache.delete(body.scope);mode='import';setAssessment(body,response.headers.get('X-Assessment-ID'));preparationSession=null;stagedImports=[];renderImportWorkspace();await createPreparationSession();window.location.hash='#assessments';setStatus('Imported evidence assessed and stored locally.');}catch(error){setStatus(error.message,true);}
 }
 
 function attachEvents(){
@@ -968,7 +1036,7 @@ function attachEvents(){
   el('clear-imports').addEventListener('click',clearImports);
   el('preview-build').addEventListener('click',previewAssessmentBuild);
   el('run-import-assessment').addEventListener('click',runImportedAssessment);
-  for(const id of ['build-scope','build-as-of','build-synthetic'])el(id).addEventListener('input',renderLocalCoverage);
+  for(const id of ['build-scope','build-as-of','build-synthetic'])el(id).addEventListener('change',async()=>{renderLocalCoverage();await syncPreparationSession();});
   el('download').addEventListener('click',downloadReport);
   el('download-audit').addEventListener('click',downloadAudit);
   el('history-compare').addEventListener('click',runHistoryComparison);
@@ -987,7 +1055,7 @@ async function loadDemo(){
 function init(){
   attachEvents();applyRoute();loadServiceStatus();loadImportProfiles();renderImportWorkspace();
   const now=new Date();now.setMinutes(now.getMinutes()-now.getTimezoneOffset());el('build-as-of').value=now.toISOString().slice(0,16);
-  loadDemo();
+  loadPreparationSession();loadDemo();
 }
 
 init();

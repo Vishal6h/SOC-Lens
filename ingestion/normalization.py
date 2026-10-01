@@ -31,6 +31,10 @@ def _identifier(record, field, maximum=200):
     return _text(record, field, maximum)
 
 
+def _optional_identifier(record, field, maximum=200):
+    return _text(record, field, maximum, required=False) or None
+
+
 def _timestamp(record, field, *, required=True):
     value = _text(record, field, 64, required=required)
     if not value:
@@ -120,6 +124,29 @@ def normalize_record(profile, record, field_limit):
         return {"incident_id": _identifier(record, "incident_id"), "alert_id": _identifier(record, "alert_id"),
                 "case_id": _identifier(record, "case_id"), "source_id": _identifier(record, "source_id"),
                 "escalation_required": _boolean(record, "escalation_required"), "detection": stage}
+    if category == "alerts":
+        alert_id = _optional_identifier(record, "alert_id")
+        external_record_id = _optional_identifier(record, "external_record_id")
+        if not alert_id and not external_record_id:
+            raise MappingError("alert_id", "MISSING_ALERT_IDENTITY", "Provide alert_id or external_record_id.")
+        item = {
+            "alert_id": alert_id, "external_record_id": external_record_id,
+            "source_id": _identifier(record, "source_id"), "detected_at": _timestamp(record, "detected_at"),
+            "evidence_ref": _reference(record), "escalation_required": _boolean(record, "escalation_required"),
+        }
+        for field in ("incident_id", "external_incident_id", "case_id", "external_case_id", "parent_alert_id"):
+            value = _optional_identifier(record, field)
+            if value:
+                item[field] = value
+        status = _text(record, "detection_status", 100, required=False)
+        severity = _text(record, "severity", 30, required=False)
+        if status:
+            item["detection_status"] = status
+        if severity:
+            item["severity"] = severity.casefold()
+        if record.get("risk_weight") not in (None, ""):
+            item["risk_weight"] = _number(record, "risk_weight", 1, 5)
+        return item
     if category == "cases":
         disposition = _text(record, "disposition", 30).casefold()
         if disposition not in {"true_positive", "false_positive", "unreviewed"}:
@@ -128,7 +155,8 @@ def normalize_record(profile, record, field_limit):
         case = {"id": _identifier(record, "case_id"), "detected_at": _timestamp(record, "detected_at"),
                 "contained_at": contained, "sla_minutes": _number(record, "sla_minutes", 1, 10080),
                 "disposition": disposition, "evidence_ref": _reference(record)}
-        patch = {"incident_id": _identifier(record, "incident_id")}
+        patch = {"incident_id": _identifier(record, "incident_id"), "case_id": case["id"],
+                 "detected_at": case["detected_at"], "evidence_ref": case["evidence_ref"]}
         for name in ("investigation", "escalation", "response", "closure"):
             stage = _stage(record, name, field_limit)
             if stage is not None:
@@ -137,4 +165,21 @@ def normalize_record(profile, record, field_limit):
     if category == "controls":
         return {"id": _identifier(record, "control_id"), "satisfied": _boolean(record, "satisfied"),
                 "critical": _boolean(record, "critical"), "evidence_ref": _reference(record)}
+    if category == "response_actions":
+        incident_id = _optional_identifier(record, "incident_id")
+        case_id = _optional_identifier(record, "case_id")
+        if not incident_id and not case_id:
+            raise MappingError("incident_id", "MISSING_ACTION_ASSOCIATION", "Provide incident_id or case_id for the response action.")
+        milestone = _text(record, "milestone", 30, required=False).casefold()
+        if milestone and milestone not in {"response", "recovery", "informational"}:
+            raise MappingError("milestone", "UNKNOWN_ACTION_MILESTONE", "Expected response, recovery, or informational.")
+        item = {"action_id": _identifier(record, "action_id"), "action_type": _text(record, "action_type", 100),
+                "timestamp": _timestamp(record, "action_at"), "evidence_ref": _reference(record),
+                "canonical_response": _boolean(record, "canonical_response")}
+        for field, value in (("incident_id", incident_id), ("case_id", case_id),
+                             ("source_id", _optional_identifier(record, "source_id")),
+                             ("status", _text(record, "status", 100, required=False)), ("milestone", milestone)):
+            if value:
+                item[field] = value
+        return item
     raise MappingError(None, "UNSUPPORTED_PROFILE", "The selected profile cannot map source records.")
