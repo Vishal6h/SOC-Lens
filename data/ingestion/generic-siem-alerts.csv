@@ -1,0 +1,3 @@
+incident_id,alert_id,case_id,source_id,detected_at,evidence_ref,escalation_required,detection_status
+INC-EXPORT-001,ALERT-EXPORT-001,CASE-EXPORT-001,SRC-SIEM-01,2026-09-29T12:00:00Z,synthetic://alerts/001,true,detected
+INC-EXPORT-002,ALERT-EXPORT-002,CASE-EXPORT-002,SRC-EDR-01,2026-09-29T14:00:00Z,synthetic://alerts/002,false,detected

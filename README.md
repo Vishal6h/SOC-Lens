@@ -59,6 +59,8 @@ SOCLens validates submitted JSON, correlates lifecycle records, evaluates operat
 - Reproducible audit ZIP export
 - Synthetic baseline and degraded demo scenarios
 - Fully local and offline operation
+- Deterministic CSV and structured-JSON evidence ingestion
+- Versioned, inspectable source-to-canonical mappings
 
 ## 4. Assessment domains
 
@@ -186,6 +188,10 @@ Browser
    ↓
 Local Python HTTP Server
    ↓
+Bounded Import Adapters / Versioned Mappings
+   ↓
+Canonical SOCLens Evidence
+   ↓
 Assessment Engine
    ↓
 Lifecycle / Scoring / Findings
@@ -205,8 +211,8 @@ so direct links and browser back/forward work without reloading the service:
 
 - **Dashboard** — current score, maturity, evidence quality, priority issues,
   incident completion, performance change, and a concise supervisory explanation.
-- **Assessments** — current assessment details, synthetic scenarios, local JSON
-  import, and reopening previous assessments.
+- **Assessments** — current details, synthetic scenarios, guided CSV/JSON import,
+  multi-file evidence coverage, and reopening previous assessments.
 - **Incidents** — assessed incident process stages and timings, with correlation IDs,
   exact timestamps, credits, targets, and supporting evidence under technical details.
 - **Findings** — supervisor-oriented issues, affected areas and incidents, expected
@@ -235,7 +241,8 @@ for the active assessment context.
 | `database_operations.py` | Validated SQLite backup/restore CLI and helper functions |
 | `operations.py` | Structured logging and bounded operational readiness diagnostics |
 | `reporting.py` | Supervisory summaries, manifests, and deterministic audit packages |
-| `server.py` | Local HTTP server and bounded JSON, history, and audit APIs |
+| `ingestion/` | Offline adapters, mappings, normalization, staging, previews, and canonical assembly |
+| `server.py` | Local HTTP server and bounded assessment, ingestion, history, and audit APIs |
 | `make_demo.py` | Recreates deterministic synthetic fixtures |
 | `index.html` | Accessible application shell and eight section structures |
 | `app.js` | Hash navigation, lazy section rendering, assessment interaction, history, and export |
@@ -245,7 +252,8 @@ for the active assessment context.
 | `test_hardening.py` | Input, database, server, report, and audit hardening tests |
 | `test_foundation.py` | Configuration, status, error, runtime, backup, restore, and regression tests |
 | `test_frontend.py` | DOM integrity, application routes, hash navigation, and semantic-control tests |
-| `data/` | Synthetic baseline, degraded, history, and generated result fixtures |
+| `test_ingestion.py` | CSV/JSON adapters, profiles, staging, assembly, API, and ingestion regression tests |
+| `data/` | Synthetic baseline, degraded, history, generated result, and ingestion fixtures |
 
 ## 12. How to run
 
@@ -304,8 +312,14 @@ startup with a clear error.
 | `SOCLENS_BACKUP_DIR` | `<data>/backups` | Database backup destination |
 | `SOCLENS_EXPORT_DIR` | `<data>/exports` | Operator-managed export destination |
 | `SOCLENS_LOG_DIR` | `<data>/logs` | Rotating service log destination |
+| `SOCLENS_IMPORT_DIR` | `<data>/imports` | Staged import metadata and normalized fragments |
 | `SOCLENS_LOG_LEVEL` | `INFO` | `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG` |
 | `SOCLENS_REQUEST_SIZE_LIMIT` | `2000000` | Maximum JSON request bytes (maximum configurable value: 100 MB) |
+| `SOCLENS_INGESTION_MAX_UPLOAD_BYTES` | request-size limit | Maximum bytes in one evidence file |
+| `SOCLENS_INGESTION_MAX_RECORDS` | `10000` | Maximum source records in one import |
+| `SOCLENS_INGESTION_MAX_COLUMNS` | `100` | Maximum CSV columns or distinct JSON fields |
+| `SOCLENS_INGESTION_MAX_FIELD_BYTES` | `10000` | Maximum encoded source-field size |
+| `SOCLENS_INGESTION_MAX_ACTIVE_IMPORTS` | `100` | Maximum staged imports retained at once |
 
 The runtime layout is created at startup and ignored by Git:
 
@@ -314,6 +328,7 @@ runtime/
   db/
   backups/
   exports/
+  imports/
   logs/
 ```
 
@@ -386,6 +401,68 @@ and schema, scoring policy, and report schema. Keep the default localhost bind u
 authentication, authorization, TLS/reverse-proxy controls, and deployment hardening
 are implemented in a later phase.
 
+### Real evidence ingestion
+
+Phase 3 places an auditable adapter layer before the unchanged assessment engine:
+
+```text
+Source CSV / JSON export
+    → bounded adapter and explicit profile
+    → row validation and normalization
+    → canonical SOCLens evidence
+    → existing correlation and sat-sa-demo-2.0 scoring
+```
+
+On **Assessments**, choose a versioned mapping profile, upload a local export, review
+its preview and row issues, combine the required evidence categories, check coverage,
+then run the assessment. Existing canonical SOCLens JSON remains supported both by
+the `SOCLens JSON` profile and the backward-compatible `POST /api/assess` endpoint.
+
+Supported offline profiles are:
+
+- Generic Telemetry / Source Health Export (`sources`)
+- Generic Detection Validation Export (`techniques`)
+- Generic SIEM Alert Export (lifecycle detection and explicit identifiers)
+- Generic Case Management Export (`cases` and optional lifecycle stages)
+- Generic Control Evidence Export (`controls`)
+- canonical SOCLens JSON passthrough
+
+Profiles are Python-defined, versioned, exact mappings. CSV and source-record JSON
+(`[{...}]` or `{"records":[...]}`) use the same field contracts. SOCLens does not
+fuzzily match headers, execute spreadsheet formulas, infer missing evidence, or treat
+an alert occurrence as proof of detection validation. Timestamp, Boolean, enumeration,
+whitespace, and identifier conversions are explicit in `ingestion/normalization.py`.
+
+Each import receives a random identifier and records its filename (never an absolute
+client path), file SHA-256, selected profile/version, record counts, warnings/errors,
+produced categories, normalized-fragment SHA-256, and status. Only this metadata and
+the normalized fragment are written atomically under `runtime/imports/<import-id>/`;
+raw uploaded content is not retained or web-served. Operators can remove an import in
+the UI/API, or invoke `ImportService.cleanup(older_than_seconds)` from a bounded local
+maintenance script. Test mode uses its isolated temporary runtime root.
+
+Rejected rows report source file, record number, field, stable code, and reason. Error
+reports are available as JSON or CSV at `GET /api/import/<id>/errors?format=json|csv`.
+Warnings identify accepted records or unmapped fields that require review; information
+messages describe deterministic normalization. An import containing rejected records
+cannot enter an assessment build.
+
+Multi-file preparation combines canonical categories without placeholders. Sources,
+techniques, cases, and controls must be present; any supplied lifecycle alert/case
+fragments must correlate completely. Build preview exposes missing/partial coverage.
+Reports created by `POST /api/assessment-build` add non-breaking lineage containing
+import IDs, source file hashes, profile versions, ingestion time, and canonical hash.
+Legacy canonical assessment hashes and scoring remain unchanged.
+
+All files under `data/ingestion/` are explicitly synthetic examples. The valid five-file
+set demonstrates complete assembly, `generic-telemetry.csv` demonstrates an accepted
+unmapped-column warning, and `generic-siem-alerts-invalid.csv` demonstrates rejected
+timestamp and Boolean values.
+
+SOCLens does not yet connect live to external SIEM/EDR/SOAR systems. Phase 3 does not
+provide credentials, polling, archives, fuzzy or AI-assisted mapping, multi-alert
+correlation, or official vendor compatibility.
+
 ## 13. Testing
 
 Run the complete Python test suite:
@@ -394,8 +471,8 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **106 tests passing** (the original 102 backend and
-production-foundation tests plus 4 frontend application-shell contract tests).
+Current validated status: **125 tests passing**, including production-foundation,
+application-shell, ingestion, staging, mapping, assembly, and regression coverage.
 
 Validate the frontend JavaScript syntax:
 

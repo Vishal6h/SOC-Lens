@@ -134,6 +134,21 @@ button:disabled,select:disabled{opacity:.5;cursor:not-allowed}
 
 .action-panel{display:flex;align-items:center;justify-content:space-between;gap:22px}
 .action-panel p{margin:0}
+.import-workflow .section-heading p{margin-bottom:0}
+.import-step-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.import-step,.import-preview,.coverage-panel{min-width:0;padding:16px;border:1px solid var(--border);border-radius:5px;background:#0d1b2a}
+.import-step{display:flex;flex-direction:column;align-items:flex-start;gap:10px}
+.import-step h3{margin:0}.step-number{display:grid;place-items:center;width:23px;height:23px;border:1px solid var(--teal);border-radius:50%;color:var(--teal);font-size:10px;font-weight:700}
+.import-step label{display:grid;width:100%;gap:5px;color:var(--muted);font-size:8px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+.import-step input[type="text"],.import-step input[type="datetime-local"],.file-field input{box-sizing:border-box;width:100%;padding:9px;border:1px solid var(--border-strong);border-radius:4px;background:var(--surface-3);color:var(--text);font:inherit;text-transform:none}
+.import-step .check-field{display:flex;flex-direction:row;align-items:center;gap:8px;color:var(--text);font-size:10px;font-weight:500;letter-spacing:0;text-transform:none}
+.import-preview,.coverage-panel{margin-top:14px}
+.import-card{padding:12px;border:1px solid var(--border);border-left:3px solid var(--teal);border-radius:4px;background:var(--surface-2)}
+.import-card.failed{border-left-color:var(--red)}.import-card+.import-card{margin-top:8px}
+.import-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.import-card h4{margin:0 0 3px;font-size:11px}.import-card p{margin:0;font-size:9px;color:var(--muted)}
+.import-card-actions{display:flex;gap:7px;margin-top:10px}.import-card-actions button,.import-card-actions a{padding:5px 8px;font-size:9px}
+.issue-list{margin:10px 0 0;padding-left:18px;font-size:9px;line-height:1.6}.issue-error{color:var(--red)}.issue-warning{color:var(--amber)}.issue-info{color:var(--muted)}
+.coverage-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:12px}.coverage-item{padding:10px;border:1px solid var(--border);background:var(--surface-2)}.coverage-item small{display:block;font-size:7px;letter-spacing:.5px;text-transform:uppercase}.coverage-item strong{display:block;margin-top:5px;font-size:10px;text-transform:capitalize}
 .detail-grid,.summary-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
 .detail-item,.summary-card{display:flex;flex-direction:column;min-width:0;padding:12px;border:1px solid var(--border);background:#0e1d2d;border-radius:4px}
 .detail-item small,.summary-card small{font-size:8px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
@@ -274,6 +289,7 @@ footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--border);color
   .incident-overview{grid-template-columns:repeat(3,1fr)}
   .process-line{grid-template-columns:repeat(2,1fr)}
   .policy-grid{grid-template-columns:repeat(2,1fr)}
+  .import-step-grid{grid-template-columns:1fr}
 }
 @media(max-width:560px){
   .app-header{gap:10px}
@@ -282,7 +298,7 @@ footer{margin-top:28px;padding-top:16px;border-top:1px solid var(--border);color
   .global-status{text-align:left;margin-top:8px}
   .page-intro{display:block}
   .page-intro>.count-badge,.page-intro>.text-link{margin-top:10px}
-  .dashboard-metrics,.detail-grid,.summary-strip,.export-grid,.policy-grid,.finding-explanation,.technical-grid{grid-template-columns:1fr}
+  .dashboard-metrics,.detail-grid,.summary-strip,.export-grid,.policy-grid,.finding-explanation,.technical-grid,.coverage-grid{grid-template-columns:1fr}
   .hero-metric{min-height:120px}
   .domain-row{grid-template-columns:78px 1fr 38px}
   .incident>summary,.finding>summary{display:block}

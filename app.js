@@ -22,6 +22,9 @@ let currentAssessmentId=null;
 let currentManifest=null;
 let mode='baseline';
 let serviceState=null;
+let importProfiles=[];
+let stagedImports=[];
+let buildReady=false;
 let historyState=null;
 let historyRequest=0;
 let renderedPages=new Set();
@@ -788,6 +791,15 @@ function renderReports(report){
     ['Manifest schema',currentManifest&&currentManifest.manifest_schema_version],['Audit package version',currentManifest&&currentManifest.audit_package_version],
     ['Data classification',report.data_classification]
   ]));
+  const ingestion=report.ingestion_provenance;
+  if(ingestion&&Array.isArray(ingestion.imports)){
+    provenance.append(add('p','Imported-source lineage','eyebrow'),factList([
+      ['Ingestion time',ingestion.ingested_at],['Canonical evidence SHA-256',ingestion.canonical_evidence_sha256],
+      ['Import IDs',ingestion.imports.map(item=>item.import_id).join(', ')],
+      ['Source profiles',ingestion.imports.map(item=>`${item.source_profile} (${item.mapping_profile_id}@${item.mapping_profile_version})`).join('; ')],
+      ['Source file SHA-256',ingestion.imports.map(item=>`${item.filename}: ${item.file_sha256}`).join('; ')]
+    ]));
+  }
 }
 
 function policyCard(label,value,note){
@@ -855,16 +867,95 @@ async function downloadAudit(){
   }catch(error){setStatus(error.message,true);}
 }
 
-async function importAssessment(event){
-  const file=event.target.files[0];if(!file)return;
+function selectedImportProfile(){return importProfiles.find(profile=>profile.key===el('import-profile').value);}
+
+function renderMappingProfile(){
+  const profile=selectedImportProfile(),container=el('mapping-technical');container.replaceChildren();
+  if(!profile){container.append(add('p','Select a profile to view its exact field mapping.','muted'));return;}
+  container.append(factList([['Profile',profile.label],['Identifier',profile.key],['Accepted format',profile.formats.join(', ')],['Canonical category',profile.category]]));
+  const mapping=Object.entries(profile.field_mapping||{});
+  if(mapping.length){const list=document.createElement('dl');list.className='fact-list';for(const [source,target] of mapping){list.append(add('dt',source),add('dd',target));}container.append(list);}
+  else container.append(add('p','Canonical SOCLens JSON is validated without source-field remapping.','muted'));
+}
+
+function importIssueText(issue){
+  const location=issue.record_number?`Record ${issue.record_number}${issue.field?` · ${issue.field}`:''}`:(issue.field||'File');
+  return `${location} · ${issue.code} · ${issue.reason}`;
+}
+
+function renderImportWorkspace(){
+  const container=el('import-preview');container.replaceChildren();
+  el('import-status').textContent=stagedImports.length?`${stagedImports.length} staged`:'No imports';
+  el('clear-imports').disabled=!stagedImports.length;el('preview-build').disabled=!stagedImports.length;el('run-import-assessment').disabled=!buildReady;
+  if(!stagedImports.length)container.append(add('p','No evidence files are staged.','empty-state'));
+  for(const job of stagedImports){
+    const card=add('article','',`import-card ${job.status==='ready'?'':'failed'}`);const head=add('div','', 'import-card-head');
+    const identity=document.createElement('div');identity.append(add('h4',job.original_filename),add('p',`${job.source_profile} · ${job.status}`));head.append(identity,badge(job.status==='ready'?'READY':'ERROR',job.status==='ready'?'ready':'missing'));card.append(head);
+    card.append(factList([['File SHA-256',job.file_sha256],['Records',job.record_count],['Accepted',job.accepted_records],['Rejected',job.rejected_records],['Warnings',job.warnings],['Produces',(job.categories_produced||[]).join(', ')||'None']]));
+    const issues=Array.isArray(job.issues)?job.issues:[];
+    if(issues.length){const list=document.createElement('ul');list.className='issue-list';for(const issue of issues.slice(0,12)){const item=add('li',importIssueText(issue),`issue-${String(issue.level).toLowerCase()}`);list.append(item);}card.append(list);}
+    const actions=add('div','', 'import-card-actions');const remove=add('button','Remove','table-action');remove.type='button';remove.onclick=()=>removeImport(job.import_id);actions.append(remove);
+    if(job.rejected_records){const errors=add('a','Download errors','text-link');errors.href=`/api/import/${encodeURIComponent(job.import_id)}/errors?format=csv`;errors.download=`soclens-import-errors-${job.import_id}.csv`;actions.append(errors);}
+    card.append(actions);container.append(card);
+  }
+  renderLocalCoverage();
+}
+
+function renderCoverage(coverage){
+  const container=el('build-coverage');container.replaceChildren();
+  for(const category of ['sources','techniques','cases','controls','lifecycles']){
+    const value=coverage&&coverage[category]||{state:'missing',records:0};const card=add('div','', 'coverage-item');card.append(add('small',title(category)),add('strong',`${title(value.state)} · ${value.records||0}`));container.append(card);
+  }
+}
+
+function renderLocalCoverage(){
+  const coverage={};for(const category of ['sources','techniques','cases','controls','lifecycles'])coverage[category]={state:'missing',records:0};
+  for(const job of stagedImports.filter(item=>item.status==='ready'))for(const category of job.categories_produced||[]){coverage[category].state='staged';coverage[category].records+=job.accepted_records||0;}
+  renderCoverage(coverage);buildReady=false;el('run-import-assessment').disabled=true;
+  el('build-message').textContent=stagedImports.length?'Check combined evidence to validate correlations and required coverage.':'Upload evidence to begin a multi-file assessment.';
+}
+
+async function loadImportProfiles(){
   try{
-    if(file.size>2000000)throw Error('Upload limit is 2 MB');
-    setStatus('Assessing imported evidence…');
-    const text=await file.text();const response=await fetch('/api/assess',{method:'POST',headers:{'Content-Type':'application/json'},body:text});const report=await response.json();
-    if(!response.ok)throw Error(apiErrorMessage(report,'Assessment request failed'));
-    historyCache.delete(report.scope);mode='import';setAssessment(report,response.headers.get('X-Assessment-ID'));window.location.hash='#assessments';setStatus('Imported evidence assessed and stored locally.');
-  }catch(error){setStatus(error.message,true);}
-  finally{event.target.value='';}
+    const body=await fetchJson('/api/import/profiles','Import profiles could not be loaded');importProfiles=body.profiles||[];const select=el('import-profile');select.replaceChildren();
+    for(const profile of importProfiles){const option=document.createElement('option');option.value=profile.key;option.textContent=profile.label+` · v${profile.version}`;select.append(option);}renderMappingProfile();
+  }catch(error){el('import-profile').replaceChildren(add('option','Profiles unavailable'));setStatus(error.message,true);}
+}
+
+async function stageImport(){
+  const file=el('upload').files[0],profile=selectedImportProfile();if(!profile){setStatus('Choose a mapping profile.',true);return;}if(!file){setStatus('Choose an evidence file.',true);return;}
+  const sourceFormat=file.name.toLowerCase().endsWith('.csv')?'csv':file.name.toLowerCase().endsWith('.json')?'json':'';
+  if(!sourceFormat){setStatus('Evidence file must use a .csv or .json extension.',true);return;}
+  try{
+    setStatus('Validating and mapping evidence…');const query=new URLSearchParams({profile:profile.key,filename:file.name,format:sourceFormat});
+    const response=await fetch('/api/import?'+query,{method:'POST',headers:{'Content-Type':sourceFormat==='csv'?'text/csv':'application/json'},body:file});const body=await response.json();
+    if(!response.ok)throw Error(apiErrorMessage(body,'Evidence import failed'));stagedImports.push(body);renderImportWorkspace();setStatus(body.status==='ready'?'Evidence mapped and ready for combined validation.':'Evidence contains errors; review the import preview.',body.status!=='ready');
+  }catch(error){setStatus(error.message,true);}finally{el('upload').value='';}
+}
+
+async function removeImport(importId){
+  try{const response=await fetch('/api/import/'+encodeURIComponent(importId),{method:'DELETE'});const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Import could not be removed'));stagedImports=stagedImports.filter(job=>job.import_id!==importId);renderImportWorkspace();setStatus('Staged import removed.');}catch(error){setStatus(error.message,true);}
+}
+
+async function clearImports(){for(const job of [...stagedImports])await removeImport(job.import_id);}
+
+function assessmentBuildRequest(action){
+  const local=el('build-as-of').value;const asOf=local?new Date(local).toISOString():null;
+  return {import_ids:stagedImports.map(job=>job.import_id),scope:el('build-scope').value.trim(),as_of:asOf,synthetic:el('build-synthetic').checked,action};
+}
+
+async function requestAssessmentBuild(action){
+  const response=await fetch('/api/assessment-build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(assessmentBuildRequest(action))});let body;
+  try{body=await response.json();}catch(error){throw Error('Assessment build response was not valid JSON');}
+  if(!response.ok)throw Error(apiErrorMessage(body,'Assessment build failed'));return {body,response};
+}
+
+async function previewAssessmentBuild(){
+  try{setStatus('Checking combined evidence…');const {body}=await requestAssessmentBuild('preview');renderCoverage(body.coverage);buildReady=body.ready===true;el('run-import-assessment').disabled=!buildReady;el('build-message').textContent=buildReady?'All required evidence categories and lifecycle correlations are valid.':`Evidence is incomplete${body.missing_categories&&body.missing_categories.length?`: ${body.missing_categories.map(title).join(', ')}`:'.'}`;setStatus(buildReady?'Combined evidence is ready for assessment.':'Combined evidence needs attention.',!buildReady);}catch(error){buildReady=false;el('run-import-assessment').disabled=true;setStatus(error.message,true);el('build-message').textContent=error.message;}
+}
+
+async function runImportedAssessment(){
+  try{setStatus('Running assessment from mapped evidence…');const {body,response}=await requestAssessmentBuild('assess');historyCache.delete(body.scope);mode='import';setAssessment(body,response.headers.get('X-Assessment-ID'));window.location.hash='#assessments';setStatus('Imported evidence assessed and stored locally.');}catch(error){setStatus(error.message,true);}
 }
 
 function attachEvents(){
@@ -872,7 +963,12 @@ function attachEvents(){
   el('menu-toggle').addEventListener('click',toggleNavigation);
   el('baseline').addEventListener('click',()=>{if(demo){mode='baseline';setAssessment(demo.baseline,demo.assessment_ids&&demo.assessment_ids.baseline);}});
   el('degraded').addEventListener('click',()=>{if(demo){mode='degraded';setAssessment(demo.degraded,demo.assessment_ids&&demo.assessment_ids.degraded);}});
-  el('upload').addEventListener('change',importAssessment);
+  el('import-profile').addEventListener('change',renderMappingProfile);
+  el('stage-import').addEventListener('click',stageImport);
+  el('clear-imports').addEventListener('click',clearImports);
+  el('preview-build').addEventListener('click',previewAssessmentBuild);
+  el('run-import-assessment').addEventListener('click',runImportedAssessment);
+  for(const id of ['build-scope','build-as-of','build-synthetic'])el(id).addEventListener('input',renderLocalCoverage);
   el('download').addEventListener('click',downloadReport);
   el('download-audit').addEventListener('click',downloadAudit);
   el('history-compare').addEventListener('click',runHistoryComparison);
@@ -889,7 +985,9 @@ async function loadDemo(){
 }
 
 function init(){
-  attachEvents();applyRoute();loadServiceStatus();loadDemo();
+  attachEvents();applyRoute();loadServiceStatus();loadImportProfiles();renderImportWorkspace();
+  const now=new Date();now.setMinutes(now.getMinutes()-now.getTimezoneOffset());el('build-as-of').value=now.toISOString().slice(0,16);
+  loadDemo();
 }
 
 init();

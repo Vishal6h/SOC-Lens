@@ -1,0 +1,6 @@
+{
+  "records": [
+    {"control_id": "CTRL-ACCESS-REVIEW", "satisfied": true, "critical": true, "evidence_ref": "synthetic://controls/access-review"},
+    {"control_id": "CTRL-PLAYBOOK-REVIEW", "satisfied": true, "critical": false, "evidence_ref": "synthetic://controls/playbook-review"}
+  ]
+}

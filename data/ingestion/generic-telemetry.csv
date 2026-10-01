@@ -1,0 +1,3 @@
+source_id,source_type,weight,completeness,last_seen,evidence_ref,export_note
+SRC-SIEM-01,SIEM,5,1.0,2026-09-30T10:00:00Z,synthetic://telemetry/siem-01,SYNTHETIC SAMPLE
+SRC-EDR-01,EDR,4,0.95,2026-09-30T09:30:00Z,synthetic://telemetry/edr-01,SYNTHETIC SAMPLE

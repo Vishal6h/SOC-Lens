@@ -117,15 +117,39 @@
           <div><p class="eyebrow">ASSESSMENTS</p><h2>Current and previous assessments</h2><p>Review the active assessment, load a demonstration scenario, or import authorized local evidence.</p></div>
         </div>
         <article class="panel action-panel">
-          <div>
-            <h3>Load assessment evidence</h3>
-            <p class="muted">Demonstration scenarios are synthetic. Imported JSON is assessed and stored locally.</p>
+          <div><h3>Demonstration assessments</h3><p class="muted">These bundled scenarios are explicitly synthetic and remain separate from uploaded evidence.</p></div>
+          <div class="actions"><button id="baseline" type="button">Baseline demo</button><button id="degraded" type="button">Degraded demo</button></div>
+        </article>
+        <article class="panel page-panel import-workflow" aria-labelledby="new-assessment-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">NEW ASSESSMENT</p><h2 id="new-assessment-title">Upload exported evidence</h2><p class="muted">Choose an explicit mapping, preview validation, combine evidence categories, then run the assessment.</p></div>
+            <span id="import-status" class="count-badge">No imports</span>
           </div>
-          <div class="actions">
-            <button id="baseline" type="button">Baseline demo</button>
-            <button id="degraded" type="button">Degraded demo</button>
-            <label class="upload">Import assessment JSON<input type="file" id="upload" accept="application/json,.json" aria-label="Import assessment JSON"></label>
+          <div class="import-step-grid">
+            <section class="import-step"><span class="step-number">1</span><h3>Choose evidence source</h3>
+              <label>Mapping profile<select id="import-profile" aria-describedby="profile-help"><option value="">Loading profiles…</option></select></label>
+              <p id="profile-help" class="muted">Mappings are versioned and exact; SOCLens does not guess columns.</p>
+              <label class="file-field">Evidence file<input type="file" id="upload" accept=".csv,.json,text/csv,application/json"></label>
+              <button id="stage-import" type="button">Upload and preview</button>
+            </section>
+            <section class="import-step"><span class="step-number">2</span><h3>Assessment context</h3>
+              <label>Scope / Entity<input id="build-scope" type="text" maxlength="100" placeholder="Example SOC scope"></label>
+              <label>Evidence as of<input id="build-as-of" type="datetime-local"></label>
+              <label class="check-field"><input id="build-synthetic" type="checkbox"> This upload is synthetic sample data</label>
+              <p class="muted">User-supplied evidence is not labeled synthetic unless you select this option.</p>
+            </section>
           </div>
+          <section class="import-preview" aria-live="polite">
+            <div class="section-heading"><div><p class="eyebrow">IMPORT PREVIEW</p><h3>Staged evidence</h3></div><button id="clear-imports" type="button" disabled>Remove all</button></div>
+            <div id="import-preview"><p class="empty-state">No evidence files are staged.</p></div>
+          </section>
+          <section class="coverage-panel">
+            <div class="section-heading"><div><p class="eyebrow">CANONICAL COVERAGE</p><h3>Evidence readiness</h3></div></div>
+            <div id="build-coverage" class="coverage-grid"></div>
+            <div id="build-message" class="empty-state">Upload evidence to begin a multi-file assessment.</div>
+            <div class="actions"><button id="preview-build" type="button" disabled>Check combined evidence</button><button id="run-import-assessment" type="button" disabled>Run SOCLens assessment</button></div>
+          </section>
+          <details class="disclosure"><summary>Show technical mapping details</summary><div id="mapping-technical" class="technical-content"><p class="muted">Select a profile to view its exact field mapping.</p></div></details>
         </article>
         <article class="panel page-panel">
           <div class="section-heading"><div><p class="eyebrow">ACTIVE ASSESSMENT</p><h2>Assessment details</h2></div><span id="assessment-status" class="count-badge">Loading</span></div>

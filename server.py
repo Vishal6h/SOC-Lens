@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import json
 import logging
 import sqlite3
+from datetime import datetime, timezone
 
 from config import ConfigurationError, initialize_runtime_directories, load_config
 from engine import POLICY, assess, compare
@@ -23,6 +24,8 @@ from assessment_history import (
 )
 from operations import APP_VERSION, configure_logging, operational_status
 from reporting import REPORT_SCHEMA_VERSION, audit_package
+from ingestion import ImportService, assemble_imports
+from ingestion.staging import ImportNotFound
 
 
 ROOT = Path(__file__).resolve().parent
@@ -87,6 +90,23 @@ def read_json_request(headers, stream, limit=None):
         return json.loads(raw)
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise ValueError("Request body must contain valid UTF-8 JSON") from exc
+
+
+def read_upload_request(headers, stream, limit, allowed_content_types):
+    if headers.get("Transfer-Encoding"):
+        raise ValueError("Transfer-Encoding is not supported")
+    if headers.get_content_type() not in allowed_content_types:
+        raise UnsupportedMediaType("Unsupported evidence Content-Type")
+    try:
+        length = int(headers.get("Content-Length", "0"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Content-Length must be an integer") from exc
+    if not 0 < length <= limit:
+        raise ValueError(f"Upload limit is {limit} bytes")
+    raw = stream.read(length)
+    if len(raw) != length:
+        raise ValueError("Request body ended before Content-Length bytes were received")
+    return raw
 
 
 def seed_demo_history(database=None):
@@ -228,6 +248,9 @@ class Handler(BaseHTTPRequestHandler):
         if isinstance(exc, HistoryNotFound):
             self.reply_error(404, "assessment_not_found", str(exc))
             return True
+        if isinstance(exc, ImportNotFound):
+            self.reply_error(404, "import_not_found", str(exc))
+            return True
         if isinstance(exc, ComparisonUnavailable):
             body = error_document("comparison_unavailable", str(exc))
             body["comparable"] = False
@@ -283,6 +306,27 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/api/ready" and not parsed.query:
             status = operational_status(CONFIG, Path(DB))
             return self.reply(200 if status["status"] == "ready" else 503, status)
+        if parsed.path == "/api/import/profiles" and not parsed.query:
+            return self.reply(200, {"profiles": ImportService(CONFIG).profiles()})
+        if parsed.path.startswith("/api/import/"):
+            query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=5)
+            suffix = unquote(parsed.path[len("/api/import/"):])
+            error_export = suffix.endswith("/errors")
+            import_id = suffix[:-7] if error_export else suffix
+            if not import_id or "/" in import_id:
+                raise ValueError("Invalid import_id")
+            service = ImportService(CONFIG)
+            if error_export:
+                _only(query, "format")
+                export_format = _one(query, "format", required=False) or "json"
+                if export_format == "csv":
+                    return self.reply(200, service.error_report_csv(import_id), "text/csv; charset=utf-8",
+                                      {"Content-Disposition": f'attachment; filename="soclens-import-errors-{import_id}.csv"'})
+                if export_format != "json":
+                    raise ValueError("format must be json or csv")
+                return self.reply(200, service.error_report_json(import_id))
+            _only(query)
+            return self.reply(200, service.get(import_id).public_document())
 
         history_response = history_api(self.path, DB)
         if history_response is not None:
@@ -317,27 +361,86 @@ class Handler(BaseHTTPRequestHandler):
         return self._dispatch(self._do_POST)
 
     def _do_POST(self):
-        if self.path != "/api/assess":
-            return self.reply_error(404, "not_found", "Not found")
         if self.headers.get("Sec-Fetch-Site") == "cross-site":
             return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
-        data = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
-        report = assess(data)
-        assessment_id = save(data, report, origin="import")
-        return self.reply(
-            200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id
-        )
+        parsed = urlparse(self.path)
+        if parsed.path == "/api/assess" and not parsed.query:
+            data = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
+            report = assess(data)
+            assessment_id = save(data, report, origin="import")
+            return self.reply(200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id)
+        if parsed.path == "/api/import":
+            query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=5)
+            _only(query, "profile", "filename", "format")
+            profile = _one(query, "profile")
+            filename = _one(query, "filename")
+            source_format = _one(query, "format")
+            if source_format not in {"csv", "json"}:
+                raise ValueError("format must be csv or json")
+            allowed = {"text/csv", "application/csv"} if source_format == "csv" else {"application/json"}
+            raw = read_upload_request(self.headers, self.rfile, CONFIG.ingestion_max_upload_bytes, allowed)
+            job = ImportService(CONFIG).create(raw, filename=filename, profile_key=profile, source_format=source_format)
+            return self.reply(201, job.public_document(), assessment_id=None)
+        if parsed.path == "/api/assessment-build" and not parsed.query:
+            request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
+            if not isinstance(request, dict):
+                raise ValueError("Assessment build request must be a JSON object")
+            allowed = {"import_ids", "scope", "as_of", "synthetic", "action"}
+            if set(request) - allowed:
+                raise ValueError("Unexpected assessment build field(s): " + ", ".join(sorted(set(request) - allowed)))
+            import_ids = request.get("import_ids")
+            if not isinstance(import_ids, list) or not import_ids or len(import_ids) > CONFIG.ingestion_max_active_imports:
+                raise ValueError("import_ids must be a nonempty bounded array")
+            service = ImportService(CONFIG)
+            jobs = [service.get(import_id) for import_id in import_ids]
+            result = assemble_imports(jobs, scope=request.get("scope"), as_of=request.get("as_of"), synthetic=request.get("synthetic"))
+            action = request.get("action", "preview")
+            if action not in {"preview", "assess"}:
+                raise ValueError("action must be preview or assess")
+            if action == "preview":
+                return self.reply(200, {key: value for key, value in result.items() if key != "evidence"})
+            if not result["ready"]:
+                body = error_document("incomplete_evidence", "Canonical evidence coverage is incomplete")
+                body.update({key: value for key, value in result.items() if key != "evidence"})
+                return self.reply(422, body)
+            evidence = result["evidence"]
+            report = assess(evidence)
+            report["ingestion_provenance"] = {
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
+                "canonical_evidence_sha256": result["canonical_output_sha256"],
+                "imports": [{"import_id": job.import_id, "filename": job.original_filename,
+                             "file_sha256": job.file_sha256, "source_profile": job.source_profile,
+                             "mapping_profile_id": job.mapping_profile_id,
+                             "mapping_profile_version": job.mapping_profile_version} for job in jobs],
+            }
+            assessment_id = save(evidence, report, origin="ingestion")
+            return self.reply(200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id)
+        return self.reply_error(404, "not_found", "Not found")
+
+    def do_DELETE(self):
+        return self._dispatch(self._do_DELETE)
+
+    def _do_DELETE(self):
+        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+            return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
+        parsed = urlparse(self.path)
+        if not parsed.path.startswith("/api/import/") or parsed.query:
+            return self.reply_error(404, "not_found", "Not found")
+        import_id = unquote(parsed.path[len("/api/import/"):])
+        if not import_id or "/" in import_id:
+            raise ValueError("Invalid import_id")
+        ImportService(CONFIG).delete(import_id)
+        return self.reply(200, {"deleted": True, "import_id": import_id})
 
     def method_not_allowed(self):
         return self.reply(
             405,
             error_document("method_not_allowed", f"Method {self.command} is not supported"),
-            headers={"Allow": "GET, POST"},
+            headers={"Allow": "GET, POST, DELETE"},
         )
 
     do_PUT = method_not_allowed
     do_PATCH = method_not_allowed
-    do_DELETE = method_not_allowed
     do_OPTIONS = method_not_allowed
     do_HEAD = method_not_allowed
     do_TRACE = method_not_allowed

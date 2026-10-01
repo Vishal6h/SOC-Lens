@@ -15,6 +15,10 @@ ENVIRONMENTS = {"development", "test", "production"}
 LOG_LEVELS = {"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"}
 DEFAULT_REQUEST_SIZE_LIMIT = 2_000_000
 MAX_REQUEST_SIZE_LIMIT = 100_000_000
+DEFAULT_INGESTION_MAX_RECORDS = 10_000
+DEFAULT_INGESTION_MAX_COLUMNS = 100
+DEFAULT_INGESTION_MAX_FIELD_BYTES = 10_000
+DEFAULT_INGESTION_MAX_ACTIVE_IMPORTS = 100
 
 
 class ConfigurationError(ValueError):
@@ -31,8 +35,14 @@ class AppConfig:
     backup_dir: Path
     export_dir: Path
     log_dir: Path
+    import_dir: Path
     log_level: str
     request_size_limit: int
+    ingestion_max_upload_bytes: int
+    ingestion_max_records: int
+    ingestion_max_columns: int
+    ingestion_max_field_bytes: int
+    ingestion_max_active_imports: int
     legacy_database_default: bool = False
 
 
@@ -79,6 +89,31 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
         1,
         MAX_REQUEST_SIZE_LIMIT,
     )
+    ingestion_max_upload_bytes = _integer(
+        "SOCLENS_INGESTION_MAX_UPLOAD_BYTES",
+        values.get("SOCLENS_INGESTION_MAX_UPLOAD_BYTES", str(request_size_limit)),
+        1, MAX_REQUEST_SIZE_LIMIT,
+    )
+    ingestion_max_records = _integer(
+        "SOCLENS_INGESTION_MAX_RECORDS",
+        values.get("SOCLENS_INGESTION_MAX_RECORDS", str(DEFAULT_INGESTION_MAX_RECORDS)),
+        1, 100_000,
+    )
+    ingestion_max_columns = _integer(
+        "SOCLENS_INGESTION_MAX_COLUMNS",
+        values.get("SOCLENS_INGESTION_MAX_COLUMNS", str(DEFAULT_INGESTION_MAX_COLUMNS)),
+        1, 1_000,
+    )
+    ingestion_max_field_bytes = _integer(
+        "SOCLENS_INGESTION_MAX_FIELD_BYTES",
+        values.get("SOCLENS_INGESTION_MAX_FIELD_BYTES", str(DEFAULT_INGESTION_MAX_FIELD_BYTES)),
+        1, 1_000_000,
+    )
+    ingestion_max_active_imports = _integer(
+        "SOCLENS_INGESTION_MAX_ACTIVE_IMPORTS",
+        values.get("SOCLENS_INGESTION_MAX_ACTIVE_IMPORTS", str(DEFAULT_INGESTION_MAX_ACTIVE_IMPORTS)),
+        1, 10_000,
+    )
     log_level = values.get("SOCLENS_LOG_LEVEL", "INFO").strip().upper()
     if log_level not in LOG_LEVELS or not isinstance(
         logging.getLevelName(log_level), int
@@ -117,8 +152,11 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
     log_dir = _path(
         "SOCLENS_LOG_DIR", values.get("SOCLENS_LOG_DIR"), data_dir / "logs", environment
     )
+    import_dir = _path(
+        "SOCLENS_IMPORT_DIR", values.get("SOCLENS_IMPORT_DIR"), data_dir / "imports", environment
+    )
 
-    directory_paths = {data_dir, database_path.parent, export_dir, backup_dir, log_dir}
+    directory_paths = {data_dir, database_path.parent, export_dir, backup_dir, log_dir, import_dir}
     if database_path in directory_paths:
         raise ConfigurationError("SOCLENS_DB_PATH must name a database file, not a runtime directory")
     if environment == "production":
@@ -127,6 +165,7 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
             ("SOCLENS_EXPORT_DIR", export_dir),
             ("SOCLENS_BACKUP_DIR", backup_dir),
             ("SOCLENS_LOG_DIR", log_dir),
+            ("SOCLENS_IMPORT_DIR", import_dir),
         ):
             if path != data_dir and data_dir not in path.parents:
                 raise ConfigurationError(f"{name} must be within SOCLENS_DATA_DIR in production")
@@ -140,8 +179,14 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
         backup_dir=backup_dir,
         export_dir=export_dir,
         log_dir=log_dir,
+        import_dir=import_dir,
         log_level=log_level,
         request_size_limit=request_size_limit,
+        ingestion_max_upload_bytes=ingestion_max_upload_bytes,
+        ingestion_max_records=ingestion_max_records,
+        ingestion_max_columns=ingestion_max_columns,
+        ingestion_max_field_bytes=ingestion_max_field_bytes,
+        ingestion_max_active_imports=ingestion_max_active_imports,
         legacy_database_default=use_legacy_default,
     )
 
@@ -154,6 +199,7 @@ def initialize_runtime_directories(config: AppConfig) -> tuple[Path, ...]:
         config.backup_dir,
         config.export_dir,
         config.log_dir,
+        config.import_dir,
     )
     unique = tuple(dict.fromkeys(directories))
     for directory in unique:

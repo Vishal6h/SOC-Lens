@@ -22,7 +22,7 @@ LOGGER_NAME = "soclens"
 LOG_FIELDS = (
     "event", "component", "version", "method", "path", "status_code", "assessment_id",
     "environment", "host", "port", "schema_version", "policy_version",
-    "report_schema_version", "database_ready", "backup_name", "error_code",
+    "report_schema_version", "database_ready", "backup_name", "error_code", "import_id",
 )
 
 
@@ -82,6 +82,7 @@ def runtime_directories_ready(config: AppConfig) -> bool:
         config.backup_dir,
         config.export_dir,
         config.log_dir,
+        config.import_dir,
     }
     return all(
         path.is_dir() and os.access(path, os.R_OK | os.W_OK | os.X_OK)

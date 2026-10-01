@@ -57,12 +57,22 @@ class ConfigurationTests(unittest.TestCase):
                 "SOCLENS_EXPORT_DIR": str(data / "out"),
                 "SOCLENS_BACKUP_DIR": str(data / "safe"),
                 "SOCLENS_LOG_DIR": str(data / "log"),
+                "SOCLENS_IMPORT_DIR": str(data / "imports-custom"),
                 "SOCLENS_LOG_LEVEL": "DEBUG",
                 "SOCLENS_REQUEST_SIZE_LIMIT": "4096",
+                "SOCLENS_INGESTION_MAX_UPLOAD_BYTES": "3072",
+                "SOCLENS_INGESTION_MAX_RECORDS": "50",
+                "SOCLENS_INGESTION_MAX_COLUMNS": "25",
+                "SOCLENS_INGESTION_MAX_FIELD_BYTES": "512",
+                "SOCLENS_INGESTION_MAX_ACTIVE_IMPORTS": "10",
             }, root=ROOT)
             self.assertEqual((config.environment, config.host, config.port), ("production", "0.0.0.0", 9000))
             self.assertEqual(config.database_path, data / "db" / "custom.sqlite3")
             self.assertEqual(config.request_size_limit, 4096)
+            self.assertEqual(config.import_dir, data / "imports-custom")
+            self.assertEqual((config.ingestion_max_upload_bytes, config.ingestion_max_records,
+                              config.ingestion_max_columns, config.ingestion_max_field_bytes,
+                              config.ingestion_max_active_imports), (3072, 50, 25, 512, 10))
             self.assertEqual(config.log_level, "DEBUG")
 
     def test_invalid_configuration_fails_fast(self):
@@ -72,6 +82,10 @@ class ConfigurationTests(unittest.TestCase):
             {"SOCLENS_PORT": "word"},
             {"SOCLENS_LOG_LEVEL": "VERBOSE"},
             {"SOCLENS_REQUEST_SIZE_LIMIT": "100000001"},
+            {"SOCLENS_INGESTION_MAX_RECORDS": "0"},
+            {"SOCLENS_INGESTION_MAX_COLUMNS": "1001"},
+            {"SOCLENS_INGESTION_MAX_FIELD_BYTES": "0"},
+            {"SOCLENS_INGESTION_MAX_ACTIVE_IMPORTS": "0"},
             {"SOCLENS_ENV": "production", "SOCLENS_DATA_DIR": "relative"},
         )
         for environment in invalid:
@@ -94,7 +108,7 @@ class ConfigurationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             config = load_config({"SOCLENS_ENV": "test", "SOCLENS_DATA_DIR": directory}, root=ROOT)
             initialize_runtime_directories(config)
-            for path in (config.data_dir, config.database_path.parent, config.backup_dir, config.export_dir, config.log_dir):
+            for path in (config.data_dir, config.database_path.parent, config.backup_dir, config.export_dir, config.log_dir, config.import_dir):
                 self.assertTrue(path.is_dir())
 
 

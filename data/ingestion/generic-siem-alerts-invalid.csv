@@ -1,0 +1,3 @@
+incident_id,alert_id,case_id,source_id,detected_at,evidence_ref,escalation_required,detection_status
+INC-INVALID-001,ALERT-INVALID-001,CASE-INVALID-001,SRC-SIEM-01,not-a-timestamp,synthetic://alerts/invalid,true,detected
+INC-INVALID-002,ALERT-INVALID-002,CASE-INVALID-002,SRC-SIEM-01,2026-09-29T12:00:00Z,synthetic://alerts/invalid-boolean,perhaps,detected
