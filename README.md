@@ -197,6 +197,34 @@ Dashboard / Reports / Audit Package
 
 The backend uses the Python standard library and SQLite. The frontend uses vanilla JavaScript, HTML, and CSS. Core functionality has no external runtime package, API-key, network-service, or build-tool dependency, and backend scores are not recalculated in the browser.
 
+### Application navigation
+
+The browser interface follows the principle **“very simple at the top, deeply
+technical underneath.”** A persistent application shell uses local hash navigation,
+so direct links and browser back/forward work without reloading the service:
+
+- **Dashboard** — current score, maturity, evidence quality, priority issues,
+  incident completion, performance change, and a concise supervisory explanation.
+- **Assessments** — current assessment details, synthetic scenarios, local JSON
+  import, and reopening previous assessments.
+- **Incidents** — assessed incident process stages and timings, with correlation IDs,
+  exact timestamps, credits, targets, and supporting evidence under technical details.
+- **Findings** — supervisor-oriented issues, affected areas and incidents, expected
+  targets, observed results, and supporting evidence.
+- **History** — performance trend, compatible comparison, technical drift reasons,
+  and historical assessment records.
+- **Reports** — assessment JSON and deterministic audit-package exports, with
+  hashes and schema provenance in an advanced disclosure.
+- **Policy** — human-readable prototype weights, operational targets, maturity
+  levels, and confidence gates, followed by exact technical policy details.
+- **Settings** — non-sensitive environment, version, policy, database, and readiness
+  status sourced from the Phase 1 diagnostics endpoint.
+
+Detailed metadata is progressively disclosed from summary to explanation, finding
+or incident, lifecycle stage, supporting evidence, and finally technical provenance.
+Navigation does not trigger repeated API calls; history and readiness data are cached
+for the active assessment context.
+
 ## 11. Project structure
 
 | Path | Purpose |
@@ -209,13 +237,14 @@ The backend uses the Python standard library and SQLite. The frontend uses vanil
 | `reporting.py` | Supervisory summaries, manifests, and deterministic audit packages |
 | `server.py` | Local HTTP server and bounded JSON, history, and audit APIs |
 | `make_demo.py` | Recreates deterministic synthetic fixtures |
-| `index.html` | Dashboard structure and accessible UI labels |
-| `app.js` | Dashboard rendering, interaction, history, comparison, and export |
-| `style.css` | Local dashboard presentation |
+| `index.html` | Accessible application shell and eight section structures |
+| `app.js` | Hash navigation, lazy section rendering, assessment interaction, history, and export |
+| `style.css` | Responsive shell, supervisory pages, disclosures, tables, and status presentation |
 | `test_engine.py` | Scoring, validation, and lifecycle tests |
 | `test_history.py` | Persistence, history, comparison, trend, and migration tests |
 | `test_hardening.py` | Input, database, server, report, and audit hardening tests |
 | `test_foundation.py` | Configuration, status, error, runtime, backup, restore, and regression tests |
+| `test_frontend.py` | DOM integrity, application routes, hash navigation, and semantic-control tests |
 | `data/` | Synthetic baseline, degraded, history, and generated result fixtures |
 
 ## 12. How to run
@@ -365,7 +394,8 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **102 tests passing**.
+Current validated status: **106 tests passing** (the original 102 backend and
+production-foundation tests plus 4 frontend application-shell contract tests).
 
 Validate the frontend JavaScript syntax:
 

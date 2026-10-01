@@ -3,157 +3,252 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>SOCLens — Supervisory Analytics for SOC Assessment</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header>
-    <div class="brand">SOCLens <span>SUPERVISORY ANALYTICS FOR SOC ASSESSMENT</span></div>
-    <div id="data-label" class="demo">LOADING DATA CLASSIFICATION</div>
-  </header>
-  <main>
-    <div class="intro">
-      <div>
-        <p class="eyebrow">CONTINUOUS SOC ASSESSMENT</p>
-        <h1>SOCLens</h1>
-        <p>Supervisory Analytics for SOC Assessment</p>
-        <p>Evidence before assurance. Trace supervisory scores through operational lifecycle execution to the evidence identifiers that support them.</p>
-      </div>
-      <div class="actions">
-        <button id="baseline">Baseline</button>
-        <button id="degraded">Degraded execution</button>
-        <label class="upload">Import JSON<input type="file" id="upload" accept="application/json,.json" aria-label="Import assessment JSON"></label>
-        <button id="download">Export report</button>
-        <button id="download-audit" disabled>Export audit package</button>
-      </div>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <header class="app-header">
+    <div class="header-brand">
+      <button id="menu-toggle" class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
+      <a href="#dashboard" class="brand-link" aria-label="SOCLens Dashboard">
+        <strong>SOCLens</strong>
+        <span>Supervisory Analytics for SOC Assessment</span>
+      </a>
     </div>
+    <div class="header-status" aria-label="Application status">
+      <span id="service-indicator" class="service-pill loading"><span aria-hidden="true"></span> Checking service</span>
+      <span id="data-label" class="data-pill">Loading assessment</span>
+    </div>
+  </header>
 
-    <p id="status" role="status"></p>
-    <p id="data-notice" class="data-notice" role="note"></p>
-
-    <section class="metrics" aria-label="Assessment summary">
-      <article><label>ASSESSMENT SCORE</label><strong id="score"></strong><small>Weighted policy score / 100</small></article>
-      <article><label>EVIDENCE CONFIDENCE</label><strong id="confidence"></strong><small>Completeness × freshness × linkage</small></article>
-      <article id="maturity-card"><label>MATURITY GATE</label><strong id="maturity"></strong><small id="gate"></small></article>
-      <article><label>ASSESSED EVIDENCE</label><strong id="count"></strong><small id="countsub"></small></article>
-    </section>
-
-    <section class="panel wide-panel supervisor-panel">
-      <div class="section-heading">
-        <div><p class="eyebrow">ASSESSMENT</p><h2>Supervisory summary</h2></div>
-        <span id="summary-drift" class="count-badge"></span>
+  <div class="app-shell">
+    <aside id="sidebar" class="sidebar" aria-label="Application navigation">
+      <nav id="primary-nav">
+        <a href="#dashboard" data-page="dashboard"><span class="nav-mark" aria-hidden="true">D</span><span>Dashboard</span></a>
+        <a href="#assessments" data-page="assessments"><span class="nav-mark" aria-hidden="true">A</span><span>Assessments</span></a>
+        <a href="#incidents" data-page="incidents"><span class="nav-mark" aria-hidden="true">I</span><span>Incidents</span></a>
+        <a href="#findings" data-page="findings"><span class="nav-mark" aria-hidden="true">F</span><span>Findings</span></a>
+        <a href="#history" data-page="history"><span class="nav-mark" aria-hidden="true">H</span><span>History</span></a>
+        <a href="#reports" data-page="reports"><span class="nav-mark" aria-hidden="true">R</span><span>Reports</span></a>
+        <a href="#policy" data-page="policy"><span class="nav-mark" aria-hidden="true">P</span><span>Policy</span></a>
+        <a href="#settings" data-page="settings"><span class="nav-mark" aria-hidden="true">S</span><span>Settings</span></a>
+      </nav>
+      <div class="sidebar-note">
+        <strong>Local and offline</strong>
+        <span>Evidence stays on this service.</span>
       </div>
-      <div id="supervisor-summary"></div>
-    </section>
+    </aside>
 
-    <section class="workspace">
-      <div class="panel">
-        <div class="section-heading">
-          <div><p class="eyebrow">SCORE</p><h2>Domain decomposition</h2></div>
-          <span class="section-note">Five-domain supervisory policy</span>
+    <main id="main-content" class="main-content" tabindex="-1">
+      <div class="context-bar">
+        <div>
+          <p class="eyebrow">CURRENT VIEW</p>
+          <h1 id="page-title">Dashboard</h1>
         </div>
-        <div id="domains"></div>
-        <p id="delta" class="callout"></p>
+        <p id="status" class="global-status" role="status" aria-live="polite">Loading SOCLens…</p>
       </div>
-      <div class="panel">
-        <div class="section-heading">
-          <div><p class="eyebrow">EXPLANATION</p><h2>Domain evidence components</h2></div>
-        </div>
-        <div id="domain-explanations"></div>
-        <div id="confidence-factors" class="factor-row"></div>
-      </div>
-    </section>
+      <p id="data-notice" class="data-notice" role="note" hidden></p>
 
-    <section class="panel wide-panel">
-      <div class="section-heading">
-        <div><p class="eyebrow">SUPERVISORY ACTIONS</p><h2>Findings and evidence traceability</h2></div>
-        <span id="finding-count" class="count-badge"></span>
-      </div>
-      <div id="findings" class="findings-list"></div>
-    </section>
-
-    <section id="lifecycle-section" class="panel wide-panel">
-      <div class="section-heading">
-        <div><p class="eyebrow">OPERATIONAL EXECUTION</p><h2>Incident lifecycle assessment</h2></div>
-        <span id="lifecycle-state" class="count-badge"></span>
-      </div>
-      <p id="lifecycle-unavailable" class="empty-state">Loading lifecycle assessment…</p>
-      <div id="lifecycle-content" hidden>
-        <div id="score-trace" class="score-trace" aria-label="Score to evidence trace"></div>
-        <div id="lifecycle-summary" class="summary-grid"></div>
-
-        <h3>Lifecycle component performance</h3>
-        <div class="table-wrap"><table>
-          <caption class="sr-only">Lifecycle component performance and stage outcome counts</caption>
-          <thead><tr><th>Component</th><th>Score</th><th>Applicable</th><th>Timely</th><th>Delayed</th><th>Missing</th><th>Unmeasured</th><th>N/A</th></tr></thead>
-          <tbody id="component-table"></tbody>
-        </table></div>
-
-        <h3>Average lifecycle timing</h3>
-        <div id="timing-summary" class="timing-grid"></div>
-
-        <div class="section-heading incident-heading">
-          <div><h3>Correlated incidents</h3><p class="muted">Expand an incident to inspect stages, evaluations, and exact evidence identifiers.</p></div>
-        </div>
-        <div id="incidents" class="incident-list"></div>
-      </div>
-    </section>
-
-    <section id="history-section" class="panel wide-panel">
-      <div class="section-heading">
-        <div><p class="eyebrow">SUPERVISORY CHANGE</p><h2>Assessment history and trend</h2></div>
-        <span id="history-state" class="count-badge">Loading history</span>
-      </div>
-      <p id="history-unavailable" class="empty-state">Loading persisted assessments…</p>
-      <div id="history-content" hidden>
-        <div id="history-summary" class="summary-grid history-summary"></div>
-        <div id="history-latest-delta" class="latest-delta"></div>
-
-        <h3>Overall score over time</h3>
-        <div id="trend-chart" class="trend-chart" aria-label="Historical overall assessment scores"></div>
-        <p class="muted">Observed assessments only. The line is historical and does not forecast future performance.</p>
-
-        <div class="history-compare">
+      <section id="page-dashboard" class="app-page" data-page-panel="dashboard" aria-labelledby="page-title">
+        <div class="page-intro">
           <div>
-            <h3>Compare compatible assessments</h3>
-            <p class="muted">Selections are limited to the latest policy and scope compatibility cohort.</p>
+            <p class="eyebrow">SUPERVISORY OVERVIEW</p>
+            <h2>SOC performance at a glance</h2>
+            <p>The current result, the quality of its evidence, and where supervisory attention is needed.</p>
           </div>
-          <div class="compare-controls">
-            <label>Earlier assessment<select id="history-before"></select></label>
-            <label>Later assessment<select id="history-after"></select></label>
-            <button id="history-compare">Compare</button>
-          </div>
+          <a class="text-link" href="#assessments">View assessment details →</a>
         </div>
-        <div id="history-comparison" class="history-comparison"></div>
 
-        <h3>Persisted assessments</h3>
-        <div class="table-wrap"><table>
-          <caption class="sr-only">Persisted assessments for the current scope</caption>
-          <thead><tr><th>Run</th><th>Assessed</th><th>Evidence as of</th><th>Policy</th><th>Score</th><th>Confidence</th><th>Maturity</th><th>Lifecycle</th><th>Drift</th><th>Report</th></tr></thead>
-          <tbody id="history-table"></tbody>
-        </table></div>
-      </div>
-    </section>
+        <div class="dashboard-metrics" aria-label="Current assessment summary">
+          <article class="hero-metric score-card">
+            <span>SOC Performance</span>
+            <strong id="dashboard-score">—</strong>
+            <small>out of 100</small>
+          </article>
+          <article class="hero-metric">
+            <span>Maturity <span class="help-tip" tabindex="0" aria-label="Maturity help">?<span role="tooltip">The operational maturity level after score and policy gates.</span></span></span>
+            <strong id="dashboard-maturity">—</strong>
+            <small id="dashboard-maturity-note">Waiting for assessment</small>
+          </article>
+          <article class="hero-metric">
+            <span>Evidence Quality <span class="help-tip" tabindex="0" aria-label="Evidence Quality help">?<span role="tooltip">How complete, fresh, and traceable the submitted evidence is.</span></span></span>
+            <strong id="dashboard-confidence">—</strong>
+            <small>confidence in submitted evidence</small>
+          </article>
+          <article class="hero-metric">
+            <span>Priority Issues</span>
+            <strong id="dashboard-priority">—</strong>
+            <small>High or Critical findings</small>
+          </article>
+          <article class="hero-metric">
+            <span>Incident Process Completion</span>
+            <strong id="dashboard-completion">—</strong>
+            <small id="dashboard-completion-note">Assessed incidents</small>
+          </article>
+          <article class="hero-metric change-card">
+            <span>Performance Change <span class="help-tip" tabindex="0" aria-label="Performance Change help">?<span role="tooltip">Meaningful change between compatible historical assessments. Called drift in technical views.</span></span></span>
+            <strong id="dashboard-change">—</strong>
+            <small id="dashboard-change-note">Waiting for history</small>
+          </article>
+        </div>
 
-    <section class="provenance">
-      <div class="panel">
-        <h2>Reproducible evidence chain</h2>
-        <p id="scope"></p>
-        <p id="assessment-manifest"></p>
-        <p id="schema-versions"></p>
-        <p id="report-classification"></p>
-        <code id="hash"></code>
-      </div>
-      <div class="panel">
-        <h2>Assessment policy</h2>
-        <p><strong id="policy-version"></strong></p>
-        <p>Confidence below 70 or fewer than 10 reviewed cases: provisional.<br>Missing critical controls cap maturity at L2. L4 requires ≥75 detection coverage.</p>
-        <div id="policy-thresholds"></div>
-      </div>
-    </section>
+        <div class="dashboard-grid">
+          <article class="panel summary-panel">
+            <div class="section-heading">
+              <div><p class="eyebrow">WHAT THIS MEANS</p><h2>Supervisory summary</h2></div>
+            </div>
+            <div id="dashboard-summary" class="plain-summary"><p class="loading-state">Loading assessment summary…</p></div>
+          </article>
+          <article class="panel">
+            <div class="section-heading">
+              <div><p class="eyebrow">SCORE AREAS</p><h2>Where performance stands</h2></div>
+              <a class="text-link" href="#policy">How scoring works</a>
+            </div>
+            <div id="dashboard-domains" class="domain-overview"></div>
+          </article>
+        </div>
+      </section>
 
-    <footer>SOCLens is a local Python + SQLite demonstrator implementing the SAT-SA concept. Evidence references are identifiers only; SOCLens does not retrieve external evidence.</footer>
-  </main>
+      <section id="page-assessments" class="app-page" data-page-panel="assessments" hidden>
+        <div class="page-intro">
+          <div><p class="eyebrow">ASSESSMENTS</p><h2>Current and previous assessments</h2><p>Review the active assessment, load a demonstration scenario, or import authorized local evidence.</p></div>
+        </div>
+        <article class="panel action-panel">
+          <div>
+            <h3>Load assessment evidence</h3>
+            <p class="muted">Demonstration scenarios are synthetic. Imported JSON is assessed and stored locally.</p>
+          </div>
+          <div class="actions">
+            <button id="baseline" type="button">Baseline demo</button>
+            <button id="degraded" type="button">Degraded demo</button>
+            <label class="upload">Import assessment JSON<input type="file" id="upload" accept="application/json,.json" aria-label="Import assessment JSON"></label>
+          </div>
+        </article>
+        <article class="panel page-panel">
+          <div class="section-heading"><div><p class="eyebrow">ACTIVE ASSESSMENT</p><h2>Assessment details</h2></div><span id="assessment-status" class="count-badge">Loading</span></div>
+          <div id="assessment-current" class="detail-grid"><p class="loading-state">Loading current assessment…</p></div>
+        </article>
+        <article class="panel page-panel">
+          <div class="section-heading"><div><p class="eyebrow">SCORE EXPLANATION</p><h2>Assessment area results</h2></div><a class="text-link" href="#policy">View policy</a></div>
+          <div id="assessment-domains" class="domain-overview"></div>
+          <details class="disclosure">
+            <summary>Show score impact and evidence-quality details</summary>
+            <div id="assessment-score-technical" class="technical-content"></div>
+          </details>
+        </article>
+        <article class="panel page-panel">
+          <div class="section-heading"><div><p class="eyebrow">PREVIOUS RUNS</p><h2>Assessment history</h2></div><span id="assessment-history-state" class="count-badge">Loading</span></div>
+          <div id="assessment-history" class="table-wrap"><p class="loading-state">Loading previous assessments…</p></div>
+        </article>
+      </section>
+
+      <section id="page-incidents" class="app-page" data-page-panel="incidents" hidden>
+        <div class="page-intro"><div><p class="eyebrow">ASSESSED INCIDENTS</p><h2>Incident process execution</h2><p>Follow each incident from detection through closure. Open an incident for timings, then disclose technical evidence only when needed.</p></div></div>
+        <div id="incidents-summary" class="summary-strip"></div>
+        <details id="incidents-technical-overview" class="panel disclosure" hidden>
+          <summary>Show incident process scoring and average timings</summary>
+          <div id="incidents-technical-summary" class="technical-content"></div>
+        </details>
+        <div id="incidents-list" class="incident-list"><p class="loading-state">Open this page to load incident details.</p></div>
+      </section>
+
+      <section id="page-findings" class="app-page" data-page-panel="findings" hidden>
+        <div class="page-intro">
+          <div><p class="eyebrow">SUPERVISORY ACTION</p><h2>Findings requiring review</h2><p>Start with what happened and why it matters. Open a finding for targets, observed results, affected incidents, and supporting evidence.</p></div>
+          <span id="findings-state" class="count-badge">Loading</span>
+        </div>
+        <div id="findings-list" class="findings-list"><p class="loading-state">Open this page to load findings.</p></div>
+      </section>
+
+      <section id="page-history" class="app-page" data-page-panel="history" hidden>
+        <div class="page-intro">
+          <div><p class="eyebrow">PERFORMANCE CHANGE</p><h2>Assessment history</h2><p>Review observed performance over time and compare compatible assessments. “Drift” remains available in technical explanations.</p></div>
+          <span id="history-state" class="count-badge">Loading history</span>
+        </div>
+        <p id="history-unavailable" class="empty-state">Loading persisted assessments…</p>
+        <div id="history-content" hidden>
+          <div id="history-summary" class="summary-strip"></div>
+          <article id="history-latest-delta" class="panel compact-panel"></article>
+          <article class="panel page-panel">
+            <div class="section-heading"><div><p class="eyebrow">TREND</p><h2>Overall performance over time</h2></div></div>
+            <div id="trend-chart" class="trend-chart" aria-label="Historical overall assessment scores"></div>
+            <p class="muted">Observed assessments only. This chart does not forecast future performance.</p>
+          </article>
+          <article class="panel page-panel">
+            <div class="history-compare">
+              <div><h2>Compare assessments</h2><p class="muted">Only assessments with the same scope and policy can be compared.</p></div>
+              <div class="compare-controls">
+                <label>Earlier assessment<select id="history-before"></select></label>
+                <label>Later assessment<select id="history-after"></select></label>
+                <button id="history-compare" type="button">Compare</button>
+              </div>
+            </div>
+            <div id="history-comparison" class="history-comparison"></div>
+          </article>
+          <article class="panel page-panel">
+            <div class="section-heading"><div><p class="eyebrow">RECORDED RUNS</p><h2>Assessment records</h2></div></div>
+            <div class="table-wrap"><table>
+              <caption class="sr-only">Persisted assessments for the current scope</caption>
+              <thead><tr><th>Assessment</th><th>Date</th><th>Score</th><th>Evidence Quality</th><th>Maturity</th><th>Process</th><th>Performance Change</th><th>Action</th></tr></thead>
+              <tbody id="history-table"></tbody>
+            </table></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="page-reports" class="app-page" data-page-panel="reports" hidden>
+        <div class="page-intro"><div><p class="eyebrow">REPORTS</p><h2>Assessment exports and provenance</h2><p>Download the current result or its reproducible audit package. Technical identifiers remain available below.</p></div></div>
+        <div class="export-grid">
+          <article class="panel export-card">
+            <p class="eyebrow">ASSESSMENT REPORT</p><h2>Detailed assessment result</h2>
+            <p>Machine-readable JSON containing scores, findings, lifecycle analysis, confidence, and policy information.</p>
+            <button id="download" type="button">Download assessment report</button>
+          </article>
+          <article class="panel export-card">
+            <p class="eyebrow">AUDIT PACKAGE</p><h2>Reproducible audit bundle</h2>
+            <p>Integrity metadata, findings, lifecycle summary, supervisory summary, and the detailed report. Raw evidence is excluded.</p>
+            <button id="download-audit" type="button" disabled>Download audit package</button>
+          </article>
+        </div>
+        <article class="panel page-panel">
+          <div class="section-heading"><div><p class="eyebrow">CURRENT REPORT</p><h2>Report identity</h2></div></div>
+          <div id="report-current" class="detail-grid"></div>
+        </article>
+        <details class="panel disclosure page-panel">
+          <summary>Technical provenance and integrity details</summary>
+          <div id="report-provenance" class="technical-content"></div>
+        </details>
+      </section>
+
+      <section id="page-policy" class="app-page" data-page-panel="policy" hidden>
+        <div class="page-intro"><div><p class="eyebrow">PROTOTYPE SUPERVISORY POLICY</p><h2>How the assessment is evaluated</h2><p>These fixed prototype weights and targets require calibration before use as an operational benchmark.</p></div></div>
+        <article class="panel page-panel"><div class="section-heading"><div><p class="eyebrow">ASSESSMENT AREAS</p><h2>Score weights</h2></div></div><div id="policy-areas" class="policy-grid"></div></article>
+        <article class="panel page-panel"><div class="section-heading"><div><p class="eyebrow">OPERATIONAL TARGETS</p><h2>Expected incident timings</h2></div></div><div id="policy-targets" class="policy-grid"></div></article>
+        <div class="two-column">
+          <article class="panel"><div class="section-heading"><div><p class="eyebrow">MATURITY</p><h2>Performance levels</h2></div></div><div id="policy-maturity"></div></article>
+          <article class="panel"><div class="section-heading"><div><p class="eyebrow">POLICY GATES</p><h2>Confidence and provisional rules</h2></div></div><div id="policy-rules"></div></article>
+        </div>
+        <details class="panel disclosure page-panel"><summary>Technical policy details</summary><div id="policy-technical" class="technical-content"></div></details>
+      </section>
+
+      <section id="page-settings" class="app-page" data-page-panel="settings" hidden>
+        <div class="page-intro"><div><p class="eyebrow">SETTINGS</p><h2>Service information</h2><p>Safe operational status for this local SOCLens service. Configuration is not editable from the application.</p></div><span id="settings-status" class="count-badge">Checking</span></div>
+        <div id="settings-grid" class="detail-grid"><p class="loading-state">Checking service readiness…</p></div>
+        <article class="panel page-panel information-panel">
+          <h2>Runtime configuration</h2>
+          <p>Managed through SOCLens runtime configuration.</p>
+          <p class="muted">Sensitive paths and environment values are intentionally not exposed here.</p>
+        </article>
+        <div id="settings-message" class="empty-state" role="status"></div>
+      </section>
+
+      <footer>SOCLens supports human supervisory assessment. Scores and evidence identifiers require assessor review.</footer>
+    </main>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>
