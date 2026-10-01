@@ -203,6 +203,9 @@ The backend uses the Python standard library and SQLite. The frontend uses vanil
 | --- | --- |
 | `engine.py` | Evidence validation, normalization, lifecycle correlation, scoring, confidence, maturity, and findings |
 | `assessment_history.py` | SQLite schema, persistence, migration, comparison, trend, and drift |
+| `config.py` | Centralized environment, network, path, logging, and request-limit configuration |
+| `database_operations.py` | Validated SQLite backup/restore CLI and helper functions |
+| `operations.py` | Structured logging and bounded operational readiness diagnostics |
 | `reporting.py` | Supervisory summaries, manifests, and deterministic audit packages |
 | `server.py` | Local HTTP server and bounded JSON, history, and audit APIs |
 | `make_demo.py` | Recreates deterministic synthetic fixtures |
@@ -212,6 +215,7 @@ The backend uses the Python standard library and SQLite. The frontend uses vanil
 | `test_engine.py` | Scoring, validation, and lifecycle tests |
 | `test_history.py` | Persistence, history, comparison, trend, and migration tests |
 | `test_hardening.py` | Input, database, server, report, and audit hardening tests |
+| `test_foundation.py` | Configuration, status, error, runtime, backup, restore, and regression tests |
 | `data/` | Synthetic baseline, degraded, history, and generated result fixtures |
 
 ## 12. How to run
@@ -233,6 +237,126 @@ http://127.0.0.1:8765
 
 The server binds only to localhost. Do not expose this prototype directly to a network.
 
+### Production Foundation
+
+Phase 1 adds an operational foundation without changing assessment, lifecycle,
+confidence, maturity, policy, or report semantics. The foundation audit retained
+the existing localhost binding, bounded request parsing, security headers, static
+allowlist, transactional schema-v2 migration, rollback behavior, deterministic
+audit package, and clean Ctrl+C shutdown. Configuration, structured logging,
+health/readiness, stable API errors, runtime directories, and safe database
+backup/restore are now explicit.
+
+#### Environments
+
+- `development` is the default. It preserves `127.0.0.1:8765` and uses the existing
+  repository `assessments.sqlite3` when that legacy database is present.
+- `test` chooses a unique operating-system temporary data directory when no data
+  directory is supplied. Tests and test databases do not use repository runtime data.
+- `production` remains bound to `127.0.0.1` unless the host is explicitly changed,
+  uses `runtime/db/assessments.sqlite3` by default, requires absolute explicit paths,
+  and requires configured database, backup, export, and log paths to remain under
+  the configured data directory.
+
+Environment selection never changes scoring or report results.
+
+#### Configuration
+
+All environment variables are read and validated in `config.py`. Invalid values stop
+startup with a clear error.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SOCLENS_ENV` | `development` | `development`, `test`, or `production` |
+| `SOCLENS_HOST` | `127.0.0.1` | HTTP bind host; production is localhost-safe by default |
+| `SOCLENS_PORT` | `8765` | HTTP port, 1–65535 |
+| `SOCLENS_DATA_DIR` | `runtime/` | Persistent runtime root (unique temporary root in test mode) |
+| `SOCLENS_DB_PATH` | environment-specific | SQLite database file |
+| `SOCLENS_BACKUP_DIR` | `<data>/backups` | Database backup destination |
+| `SOCLENS_EXPORT_DIR` | `<data>/exports` | Operator-managed export destination |
+| `SOCLENS_LOG_DIR` | `<data>/logs` | Rotating service log destination |
+| `SOCLENS_LOG_LEVEL` | `INFO` | `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG` |
+| `SOCLENS_REQUEST_SIZE_LIMIT` | `2000000` | Maximum JSON request bytes (maximum configurable value: 100 MB) |
+
+The runtime layout is created at startup and ignored by Git:
+
+```text
+runtime/
+  db/
+  backups/
+  exports/
+  logs/
+```
+
+Source-controlled synthetic fixtures remain under `data/`. The legacy repository
+database is not moved automatically; set `SOCLENS_DB_PATH` when an operator is ready
+to place it in the runtime layout.
+
+#### Logging and diagnostics
+
+Operational logs are compact JSON lines written to stderr and to the rotating
+`runtime/logs/soclens.log` file. They include UTC timestamp, level, component, event,
+request method/path and status where relevant, and assessment identifiers when
+available. Raw evidence payloads are not logged.
+
+- `GET /api/health` is a liveness check and returns compact JSON.
+- `GET /api/ready` verifies runtime directories, database access, schema version,
+  policy version, and report version. It returns HTTP 503 when not ready and never
+  exposes configured filesystem paths.
+
+API failures use a stable shape and do not return tracebacks or internal SQL/path
+details:
+
+```json
+{"error":{"code":"invalid_request","message":"scope is required exactly once"}}
+```
+
+#### Database initialization and migrations
+
+Startup creates schema version 2 deterministically. The original SHA-keyed schema
+has an explicit transactional migration path to version 2, remains preserved as
+`assessments_legacy_v1`, and is not duplicated on repeated startup. Migration
+failures roll back. A database declaring a newer or mismatched schema fails safely;
+it is never downgraded.
+
+#### Backup and restore
+
+Create a consistent SQLite backup with the service running or stopped:
+
+```bash
+SOCLENS_ENV=production python3 database_operations.py backup
+```
+
+The command uses SQLite's backup API, creates a unique file under the configured
+backup directory, validates integrity and schema, and prints metadata including its
+SHA-256 digest. It does not copy a live database file directly.
+
+Restore only while the service is stopped:
+
+```bash
+SOCLENS_ENV=production python3 database_operations.py restore runtime/backups/<backup>.sqlite3
+```
+
+Restore validates the candidate before touching the active database, refuses an
+unsupported schema, creates a uniquely named safety backup of the active database,
+stages and revalidates the candidate, obtains an exclusive SQLite lock, and performs
+an atomic replacement. Restore is intentionally unavailable over HTTP. If active WAL
+state is present, restore refuses the operation and asks the operator to stop and
+checkpoint the database first.
+
+#### Production startup
+
+For a local production-mode service using the default persistent layout:
+
+```bash
+SOCLENS_ENV=production SOCLENS_LOG_LEVEL=INFO python3 server.py
+```
+
+Startup logs the service version, environment, bind address/port, database readiness
+and schema, scoring policy, and report schema. Keep the default localhost bind until
+authentication, authorization, TLS/reverse-proxy controls, and deployment hardening
+are implemented in a later phase.
+
 ## 13. Testing
 
 Run the complete Python test suite:
@@ -241,7 +365,7 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **85 tests passing**.
+Current validated status: **102 tests passing**.
 
 Validate the frontend JavaScript syntax:
 

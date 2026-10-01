@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from contextlib import contextmanager
 import json
+import logging
 import re
 import sqlite3
 import uuid
@@ -11,9 +12,11 @@ from engine import POLICY, compare
 from reporting import DOMAINS, assessment_manifest, supervisor_summary
 
 SCHEMA_VERSION = 2
+MIGRATION_PATHS = {0: SCHEMA_VERSION, 1: SCHEMA_VERSION}
 OVERALL_DECLINE_THRESHOLD = 10.0
 DOMAIN_DECLINE_THRESHOLD = 10.0
 ASSESSMENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
+LOGGER = logging.getLogger("soclens.database")
 
 
 class HistoryNotFound(LookupError):
@@ -145,18 +148,46 @@ def initialize_database(path):
             raise UnsupportedDatabaseVersion(
                 f"Database schema version {current_version} is newer than supported version {SCHEMA_VERSION}"
             )
+        if current_version not in (*MIGRATION_PATHS, SCHEMA_VERSION):
+            raise UnsupportedDatabaseVersion(
+                f"Database schema version {current_version} has no supported migration path"
+            )
         connection.execute("BEGIN IMMEDIATE")
+        migration_needed = current_version != SCHEMA_VERSION
         if _table_exists(connection, "assessments"):
             columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(assessments)")
             }
             if "assessment_id" not in columns:
+                if current_version == SCHEMA_VERSION:
+                    raise RuntimeError("Database schema does not match its declared version")
                 if _table_exists(connection, "assessments_legacy_v1"):
                     raise RuntimeError("Cannot migrate: assessments_legacy_v1 already exists")
                 connection.execute("ALTER TABLE assessments RENAME TO assessments_legacy_v1")
         _create_v2(connection)
         _migrate_v1_rows(connection)
         connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+    if migration_needed:
+        LOGGER.info(
+            "Database schema initialized or migrated",
+            extra={
+                "event": "database_migration_complete",
+                "component": "database",
+                "schema_version": SCHEMA_VERSION,
+            },
+        )
+
+
+def database_schema_version(path):
+    """Return the declared SQLite schema version without changing the database."""
+    database = Path(path)
+    if not database.is_file():
+        return None
+    connection = _connect(database)
+    try:
+        return connection.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        connection.close()
 
 
 def _validated_time(value):

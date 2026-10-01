@@ -186,7 +186,8 @@ class ServerHardeningTests(unittest.TestCase):
         response = handler.wfile.getvalue()
         self.assertIn(b"405 Method Not Allowed", response)
         self.assertIn(b"Content-Type: application/json; charset=utf-8", response)
-        self.assertIn(b'"error": "Method DELETE is not supported"', response)
+        self.assertIn(b'"code": "method_not_allowed"', response)
+        self.assertIn(b'"message": "Method DELETE is not supported"', response)
 
 
 class DatabaseSafetyTests(unittest.TestCase):

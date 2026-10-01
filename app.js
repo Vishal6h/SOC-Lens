@@ -541,10 +541,16 @@ function renderHistoryComparison(result){
   }
 }
 
+function apiErrorMessage(body,fallback){
+  if(body&&body.error&&typeof body.error.message==='string')return body.error.message;
+  if(body&&typeof body.error==='string')return body.error;
+  return fallback;
+}
+
 async function fetchJson(url){
   const response=await fetch(url);
   const body=await response.json();
-  if(!response.ok)throw Error(body.error||'History request failed');
+  if(!response.ok)throw Error(apiErrorMessage(body,'History request failed'));
   return body;
 }
 
@@ -711,7 +717,7 @@ el('upload').onchange=async event=>{
     const text=await file.text();
     const response=await fetch('/api/assess',{method:'POST',headers:{'Content-Type':'application/json'},body:text});
     const report=await response.json();
-    if(!response.ok)throw Error(report.error);
+    if(!response.ok)throw Error(apiErrorMessage(report,'Assessment request failed'));
     mode='import';
     render(report,response.headers.get('X-Assessment-ID'));
   }catch(error){
@@ -733,7 +739,7 @@ el('download-audit').onclick=async()=>{
     const response=await fetch('/api/audit/'+encodeURIComponent(currentAssessmentId));
     if(!response.ok){
       const error=await response.json();
-      throw Error(error.error||'Audit package export failed');
+      throw Error(apiErrorMessage(error,'Audit package export failed'));
     }
     const link=document.createElement('a');
     const url=URL.createObjectURL(await response.blob());
