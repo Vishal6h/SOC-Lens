@@ -2,141 +2,174 @@
 
 **Supervisory Analytics for SOC Assessment**
 
-SOCLens is a local, evidence-based supervisory analytics platform for assessing SOC operational effectiveness across detection, investigation, escalation, response, closure, telemetry, quality, and governance.
+SOCLens is a local, evidence-based supervisory analytics platform designed to assess how effectively a Security Operations Center performs using declared operational evidence rather than relying only on policies, dashboards, or self-assessments. It turns structured SOC records into explainable scores, lifecycle findings, trends, and audit artifacts. SOCLens implements the SAT-SA (Supervisory Analytics Tool for SOC Assessment) concept/problem statement.
 
-SOCLens is an implementation of the SAT-SA (Supervisory Analytics Tool for SOC Assessment) concept/problem statement. It converts declared operational evidence into explainable supervisory scores, findings, lifecycle evaluations, and historical comparisons.
+## 1. The problem
 
-SOCLens is **not** a SIEM, SOC, real-time monitor, certification engine, evidence repository, peer benchmark, or production security platform. It does not collect events, operate controls, retrieve referenced evidence, predict performance, or use AI/ML. Scores and references require assessor review.
+Organizations may have documented SOC procedures, but supervisors also need evidence that those procedures work in day-to-day operations. SOCLens analyzes operational records to identify:
 
-All bundled datasets and history records are synthetic. They are labelled `SYNTHETIC DEMO DATA` in reports, manifests, audit packages, and the dashboard.
+- missing or delayed actions;
+- weak investigation and missing escalation;
+- slow response and missing closure;
+- telemetry and governance gaps; and
+- operational drift over time.
 
-## Run locally
+The result is a supervisory assessment that remains tied to the evidence identifiers supplied for review.
 
-Requirements: Python 3.10 or newer. No packages, API keys, network services, build tools, or internet connection are required.
-
-```text
-python3 server.py
-```
-
-Open `http://127.0.0.1:8765`. The server binds only to localhost. Do not expose this demonstrator to a network.
-
-To run all tests and validate the frontend source:
+## 2. What SOCLens does
 
 ```text
-python3 -B -m unittest discover -s . -v
-node --check app.js
-git diff --check
+SOC Evidence
+    ↓
+Validation
+    ↓
+Normalization / Correlation
+    ↓
+Detection → Investigation → Escalation → Response → Closure
+    ↓
+Gap Detection
+    ↓
+Supervisory Scoring
+    ↓
+Evidence Drill-down
+    ↓
+History / Trend / Drift
+    ↓
+Audit Export
 ```
 
-To regenerate canonical synthetic fixtures:
+SOCLens validates submitted JSON, correlates lifecycle records, evaluates operational execution, and persists each assessment locally. Invalid or contradictory evidence is rejected rather than silently repaired.
 
-```text
-python3 -B make_demo.py
-```
+## 3. Key features
 
-## Architecture
+- Evidence-based SOC assessment
+- Incident lifecycle correlation
+- Detection, investigation, escalation, response, and closure analysis
+- Missing-stage and negative-space detection
+- Lifecycle timing analysis
+- Explainable five-domain scoring
+- Evidence confidence scoring
+- Maturity assessment and policy gates
+- Evidence traceability through opaque references
+- Incident-level drill-down
+- Local assessment history
+- Trend analysis and compatible assessment comparison
+- Deterministic drift detection
+- Deterministic supervisory summaries
+- Reproducible audit ZIP export
+- Synthetic baseline and degraded demo scenarios
+- Fully local and offline operation
 
-- `engine.py` validates and normalizes evidence, correlates lifecycles, calculates scores/confidence/maturity, and emits findings.
-- `assessment_history.py` owns SQLite schema version 2, migration, history, compatibility, trend, and drift logic.
-- `reporting.py` creates deterministic supervisory summaries, manifests, and audit ZIP packages.
-- `server.py` provides the localhost static server and bounded JSON/history/audit APIs.
-- `index.html`, `app.js`, and `style.css` provide a dependency-free dashboard.
-- `make_demo.py` recreates deterministic synthetic evidence and history fixtures under `data/`.
+## 4. Assessment domains
 
-The evidence flow is:
+The current scoring policy is `sat-sa-demo-2.0`.
 
-```text
-SOC evidence JSON
-→ strict validation
-→ legacy/lifecycle normalization
-→ incident correlation
-→ detection / investigation / escalation / response / closure evaluation
-→ negative-space findings
-→ five-domain scoring
-→ confidence and maturity gates
-→ persisted assessment run
-→ evidence drill-down / history / trend / audit package
-```
+| Domain | Weight | What it evaluates |
+| --- | ---: | --- |
+| Detection | 30% | Risk-weighted validated technique coverage |
+| Response | 25% | Eligible containment and lifecycle execution obligations |
+| Telemetry | 20% | Weighted source completeness and freshness |
+| Quality | 15% | Reviewed-case precision and lifecycle closure discipline |
+| Governance | 10% | Applicable controls supported by evidence references |
 
-No backend score is recalculated in JavaScript.
-
-## Evidence contract
-
-Use `data/baseline.json` as the canonical input example. Required top-level fields are `scope`, `as_of`, `synthetic`, `sources`, `techniques`, `cases`, and `controls`; `lifecycles` is optional. Inputs are bounded to 2 MB at HTTP ingestion and collection sizes are bounded in the engine.
-
-Validation rejects malformed types, non-finite or out-of-range numbers, duplicate or whitespace-padded identifiers, unsupported source kinds, timestamps without timezones, future/impossible timestamps, invalid links, oversized/control-containing references, unknown lifecycle fields, unknown lifecycle stage attributes, and contradictory case/lifecycle timestamps. Invalid evidence is rejected rather than repaired.
-
-The canonical lifecycle links stable `incident_id`, `alert_id`, `case_id`, and `source_id` values through:
-
-```text
-detection → investigation → escalation → response → closure
-```
-
-Each present stage has a timestamp and may include status and an opaque `evidence_ref`. Detection must match the linked case's `detected_at`. A contained lifecycle response must match the linked case's `contained_at`; an earlier initial-response event is allowed. Escalation is required only when `escalation_required` is true. Inputs without `lifecycles` retain the legacy calculation path.
-
-Evidence references are identifiers for human verification. SOCLens does not open `demo://` references, access external systems, or fabricate evidence content.
-
-## Scoring, confidence, and maturity
-
-Scoring policy `sat-sa-demo-2.0` retains five domains:
+The overall score is the weighted combination of these five domains:
 
 ```text
 Overall = 30% Detection + 25% Response + 20% Telemetry
         + 15% Quality + 10% Governance
 ```
 
-- Detection is risk-weighted validated technique coverage.
-- Response pools eligible legacy containment-SLA obligations with lifecycle investigation, required-escalation, and response obligations.
-- Telemetry is weighted completeness multiplied by source freshness.
-- Quality pools reviewed-case precision with lifecycle closure discipline.
-- Governance is the proportion of applicable controls satisfied with evidence references.
+When lifecycle data is available, lifecycle execution influences the Response and Quality domains. The scoring policy and weights are fixed prototype policy, not universal SOC benchmarks.
 
-Lifecycle prototype targets are 15 minutes for investigation, 15 minutes for required escalation, 60 minutes from detection to response, and 240 minutes from response to closure. Timely stages earn 1 credit, delayed or present-but-unmeasurable stages earn 0.5, and missing stages earn 0. Escalation that is not required is excluded. These are prototype supervisory thresholds, not universal SOC service levels.
+## 5. Lifecycle analysis
 
-Confidence is an evidence-quality index: completeness × freshness × traceability. Poor operational performance does not directly lower confidence, but missing references can. It is not a statistical probability.
+SOCLens correlates stable incident, alert, case, and source identifiers across the operational sequence:
 
-Maturity bands are L1 below 40, L2 from 40–59.9, L3 from 60–79.9, and L4 from 80. Confidence below 70, fewer than 10 reviewed cases, or an empty evidence domain makes maturity Provisional. Critical governance gaps cap maturity at L2. L4 also requires Detection of at least 75 and no unvalidated risk-weight-4/5 technique.
+```text
+Detection → Investigation → Escalation → Response → Closure
+```
 
-## Explainability and dashboard
+The current prototype timing targets are:
 
-The dashboard separates Assessment, Evidence, Findings, Lifecycle, History, and Policy/provenance. It exposes:
+| Stage | Target |
+| --- | ---: |
+| Investigation | 15 minutes |
+| Required escalation | 15 minutes |
+| Response | 60 minutes |
+| Closure | 240 minutes |
 
-- a deterministic supervisory summary with strongest/weakest domain, High/Critical finding count, lifecycle completeness, drift status, and up to three evidence-backed issues;
-- every finding and its available owner, correlation IDs, stage, observed delay, threshold, and evidence reference;
-- Response/Quality legacy and lifecycle components and domain effects;
-- per-stage lifecycle result, timestamp, status, delay, threshold, credit, and evidence reference;
-- lifecycle counts and timing averages; and
-- active policy and prototype thresholds.
+Timely stages receive full credit, delayed or present-but-unmeasurable stages receive partial credit, and missing required stages receive no credit. Escalation is evaluated only when it is required.
 
-Synthetic and user-supplied evidence are labelled distinctly. Provisional maturity receives a visible warning state. Legacy reports without lifecycle evidence remain usable and show a clear lifecycle-empty state.
+These values are **prototype supervisory policy thresholds** and require calibration against real operating environments, risk profiles, and service expectations.
 
-## History, trend, and drift
+## 6. Confidence and maturity
 
-SQLite schema version 2 gives every run an independent `assessment_id`; `input_sha256` is an indexed integrity identifier, not a unique key. Reassessing identical evidence can therefore create a separate observation. A row stores run/evidence timestamps, scope, policy and scope hashes, score, confidence, maturity, all domains, lifecycle mode, origin, and serialized evidence/report.
+Performance score and confidence measure different things:
 
-The original SHA-keyed table migrates transactionally to `assessments_legacy_v1`, which is retained as a backup. Migrated rows use evidence `as_of` as their best available run time. Startup is idempotent. A database whose `PRAGMA user_version` is newer than supported version 2 is rejected without downgrade.
+- **Performance** represents the evaluated operational outcome.
+- **Confidence** represents evidence quality through completeness, freshness, and traceability.
 
-Read-only local routes are:
+Operational failures reduce performance. Missing, stale, incomplete, or weakly linked evidence affects confidence. Confidence is an evidence-quality index, not a statistical probability.
 
-- `GET /api/history?scope=<scope>`
-- `GET /api/history/<assessment_id>`
-- `GET /api/history/compare?before=<id>&after=<id>`
-- `GET /api/history/trend?scope=<scope>`
+| Maturity | Score range |
+| --- | ---: |
+| L1 | Below 40 |
+| L2 | 40–59.9 |
+| L3 | 60–79.9 |
+| L4 | 80 or above |
 
-Comparisons require the same policy version, scope identifier, and `scope_sha256`; incompatible requests return HTTP 409 instead of deltas. Trends expose chronological overall/confidence/domain observations, previous deltas, best/worst score, deterministic direction/streak, and excluded incompatible rows. The SVG chart shows observed overall scores only and implies no forecast.
+An assessment becomes **Provisional** when confidence is below 70, fewer than 10 cases have been reviewed, or a required evidence domain is empty. Critical governance gaps cap maturity at L2. L4 also requires Detection of at least 75 and no unvalidated risk-weight-4/5 technique.
 
-Historical drift triggers on an overall decline of at least 10 points, confidence below the policy floor, a domain decline of at least 10 points, a new High/Critical finding, or an identifiable lifecycle gap reappearing after resolution.
+## 7. Explainability
 
-## Manifest and audit package
+```text
+Overall Score
+    ↓
+Domain
+    ↓
+Lifecycle Component
+    ↓
+Incident
+    ↓
+Stage
+    ↓
+Finding
+    ↓
+Evidence Reference
+```
 
-Every persisted assessment exposes a manifest through its history response. The manifest distinguishes:
+Supervisors can move from an overall result to domain effects, lifecycle outcomes, individual findings, and the exact evidence identifiers supplied for verification. SOCLens does not retrieve or fabricate the underlying evidence represented by those identifiers.
 
-- scoring policy version: rules and thresholds producing the score;
-- report schema version: `sat-sa-report-1.0`, the JSON report contract;
-- database schema version: currently `2`, the SQLite storage layout;
-- manifest/audit package versions: local export contracts.
+## 8. History, trend, and drift
 
-The dashboard's **Export audit package** control downloads a deterministic ZIP from `GET /api/audit/<assessment_id>`. It contains:
+SOCLens stores assessment runs locally in SQLite and supports:
+
+- historical assessment retrieval;
+- comparison of compatible assessments;
+- overall, confidence, and domain deltas;
+- an observed overall-score trend;
+- deterministic drift detection; and
+- detection of lifecycle gaps that recur after previously being absent.
+
+Comparisons require the same policy version, scope identifier, and scope hash. Drift rules evaluate score and domain declines, confidence below the policy floor, new High/Critical findings, and recurring lifecycle gaps.
+
+The trend is historical only. SOCLens does not forecast performance or provide predictive analytics.
+
+## 9. Auditability
+
+Each persisted assessment carries the information required to identify its input, scope, policy, and storage contracts:
+
+| Audit field | Current meaning or value |
+| --- | --- |
+| Input SHA-256 | Integrity digest of the submitted assessment input |
+| Scope SHA-256 | Compatibility digest of the assessed scope |
+| Policy version | `sat-sa-demo-2.0` |
+| Report schema version | `sat-sa-report-1.0` |
+| Database schema version | `2` |
+| Manifest version | `sat-sa-manifest-1.0` |
+| Audit package version | `sat-sa-audit-1.0` |
+
+The deterministic audit ZIP contains:
 
 - `manifest.json`
 - `report.json`
@@ -144,20 +177,158 @@ The dashboard's **Export audit package** control downloads a deterministic ZIP f
 - `lifecycle-summary.json`
 - `supervisory-summary.json`
 
-The manifest records artifact SHA-256 values and sizes. ZIP timestamps and ordering are fixed, so the same stored assessment and historical context produce identical bytes. Raw submitted evidence and external evidence files are deliberately excluded.
+The manifest records artifact hashes and sizes. Raw submitted evidence and external evidence files are intentionally excluded from the package.
 
-The existing **Export report** control remains available for plain report JSON.
+## 10. Architecture
 
-## Synthetic demonstration
+```text
+Browser
+   ↓
+Local Python HTTP Server
+   ↓
+Assessment Engine
+   ↓
+Lifecycle / Scoring / Findings
+   ↓
+SQLite Assessment History
+   ↓
+Dashboard / Reports / Audit Package
+```
 
-`data/baseline.json`, `data/degraded.json`, and all records in `data/demo-history.json` are synthetic. The fixed history shows healthy (83.4), degraded (65.4), and current healthy (83.4) observations. Stable demo IDs prevent page refreshes from creating duplicate history. `demo://` values are labels only.
+The backend uses the Python standard library and SQLite. The frontend uses vanilla JavaScript, HTML, and CSS. Core functionality has no external runtime package, API-key, network-service, or build-tool dependency, and backend scores are not recalculated in the browser.
 
-## Offline operation and handling
+## 11. Project structure
 
-Browser assets are local and the Content Security Policy permits only same-origin resources. Static paths are allow-listed, uploads are size/content-type bounded, unsupported methods return JSON errors, and API exceptions are converted to bounded responses. SQLite and exported reports may contain sensitive operational metadata; keep them on an authorized workstation and protect them appropriately.
+| Path | Purpose |
+| --- | --- |
+| `engine.py` | Evidence validation, normalization, lifecycle correlation, scoring, confidence, maturity, and findings |
+| `assessment_history.py` | SQLite schema, persistence, migration, comparison, trend, and drift |
+| `reporting.py` | Supervisory summaries, manifests, and deterministic audit packages |
+| `server.py` | Local HTTP server and bounded JSON, history, and audit APIs |
+| `make_demo.py` | Recreates deterministic synthetic fixtures |
+| `index.html` | Dashboard structure and accessible UI labels |
+| `app.js` | Dashboard rendering, interaction, history, comparison, and export |
+| `style.css` | Local dashboard presentation |
+| `test_engine.py` | Scoring, validation, and lifecycle tests |
+| `test_history.py` | Persistence, history, comparison, trend, and migration tests |
+| `test_hardening.py` | Input, database, server, report, and audit hardening tests |
+| `data/` | Synthetic baseline, degraded, history, and generated result fixtures |
 
-## Current limitations
+## 12. How to run
 
-This prototype has no live connectors, vendor adapters, multi-alert incidents, peer/CSE benchmarking, fleet/national aggregation, RBAC/SSO, encryption at rest, protected retention, external evidence retrieval, tamper-evident remote storage, forecasting, ML anomaly detection, or AI/LLM capability. It does not estimate false-negative recall without controlled validation evidence. The 500-point trend cap, fixed prototype thresholds, synthetic demo, and assessor-supplied scope require pilot calibration and independent validation before operational use.
+Requirements: Python 3.10 or newer. No external Python packages are required.
 
-Useful standards references include NIST SP 800-61 Rev. 3, MITRE ATT&CK assessment and engineering guidance, OCSF, and CISA logging guidance.
+From WSL or Linux:
+
+```bash
+cd ~/SIH/SAT-SA-Prototype
+python3 server.py
+```
+
+Open:
+
+```text
+http://127.0.0.1:8765
+```
+
+The server binds only to localhost. Do not expose this prototype directly to a network.
+
+## 13. Testing
+
+Run the complete Python test suite:
+
+```bash
+python3 -B -m unittest discover -s . -v
+```
+
+Current validated status: **85 tests passing**.
+
+Validate the frontend JavaScript syntax:
+
+```bash
+node --check app.js
+```
+
+No continuous-integration service is claimed or required by this repository.
+
+## 14. Demo flow
+
+1. Open the synthetic baseline scenario.
+2. Review the overall score and five domain scores.
+3. Open the findings and evidence-traceability view.
+4. Drill into a correlated lifecycle incident.
+5. Inspect its stage results and evidence references.
+6. Switch to the degraded scenario.
+7. Show the resulting score and confidence changes.
+8. View assessment history, trend, and drift status.
+9. Compare compatible assessments.
+10. Export the audit package.
+
+## 15. Screenshots
+
+### Assessment Dashboard
+
+<!-- Add screenshot: docs/images/dashboard.png -->
+
+### Incident Lifecycle Drill-down
+
+<!-- Add screenshot: docs/images/lifecycle.png -->
+
+### History & Drift
+
+<!-- Add screenshot: docs/images/history.png -->
+
+## 16. Synthetic data
+
+All bundled datasets and history records are synthetic. They are labelled `SYNTHETIC DEMO DATA` in reports, manifests, audit packages, and the dashboard.
+
+The bundled examples must not be interpreted as real CSE or SOC operational evidence, certification, or proof of operational effectiveness. Values using the `demo://` scheme are labels only.
+
+## 17. What SOCLens is not
+
+SOCLens is:
+
+- not a SIEM;
+- not a replacement for a SOC;
+- not a real-time monitoring system;
+- not a centralized national SOC;
+- not an autonomous decision-maker; and
+- not a production-ready security platform.
+
+It supports human supervisory assessment. Scores, findings, evidence references, and policy thresholds require assessor review.
+
+## 18. Current limitations
+
+- No authentication, RBAC, or SSO
+- No encryption at rest
+- No live SIEM, EDR, or vendor connectors
+- Evidence references are opaque identifiers and are not retrieved
+- One alert is correlated per lifecycle incident
+- Fixed prototype policy weights and timing thresholds
+- SQLite data and local exports require appropriate workstation-level protection
+- The overall score is the primary graphed trend
+- Trend retrieval is capped at 500 observations
+
+The prototype also does not provide peer benchmarking, protected evidence retention, multi-alert incident correlation, forecasting, ML anomaly detection, or AI/LLM decision-making.
+
+## 19. Post-hackathon roadmap
+
+Potential next steps, subject to design and validation, include:
+
+- controlled pilot validation with authorized SOC data;
+- independent assessor agreement testing;
+- RBAC and SSO;
+- encryption at rest;
+- protected evidence retention;
+- an open connector schema such as OCSF;
+- configurable policy profiles;
+- multi-alert incident support; and
+- real-world threshold calibration.
+
+These items are not implemented in the current prototype.
+
+## 20. License and project status
+
+SOCLens is an experimental, SIH-ready working prototype implementing the SAT-SA concept. It is intended for demonstration, evaluation, and further validation—not production deployment.
+
+No license file is currently included in this repository.
