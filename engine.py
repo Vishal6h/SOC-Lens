@@ -419,7 +419,7 @@ def assess(data):
         "report_schema_version": REPORT_SCHEMA_VERSION,
         "scope": data["scope"], "as_of": data["as_of"], "synthetic": data["synthetic"], "policy": POLICY,
         "data_classification": "SYNTHETIC DEMO DATA" if data["synthetic"] else "USER-SUPPLIED ASSESSMENT EVIDENCE",
-        "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
+        "prototype_notice": "SOCLens is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
         "score": round(score, 1), "confidence": round(confidence, 1), "maturity": "Provisional" if provisional else f"L{level}",
         "domains": {k: round(v, 1) for k, v in domain.items()},
         "confidence_factors": {"completeness": round(completeness, 3), "freshness": round(fresh, 3), "traceability": round(traceability, 3)},

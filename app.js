@@ -723,7 +723,7 @@ el('download').onclick=()=>{
   const link=document.createElement('a');
   const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'}));
   link.href=url;
-  link.download='sat-sa-assessment.json';
+  link.download='soclens-assessment.json';
   link.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
@@ -738,7 +738,7 @@ el('download-audit').onclick=async()=>{
     const link=document.createElement('a');
     const url=URL.createObjectURL(await response.blob());
     link.href=url;
-    link.download='sat-sa-audit-'+currentAssessmentId+'.zip';
+    link.download='soclens-audit-'+currentAssessmentId+'.zip';
     link.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
     el('status').textContent='Audit package exported for assessment '+currentAssessmentId+'.';

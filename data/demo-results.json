@@ -27,7 +27,7 @@
       }
     },
     "data_classification": "SYNTHETIC DEMO DATA",
-    "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
+    "prototype_notice": "SOCLens is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
     "score": 83.4,
     "confidence": 94.4,
     "maturity": "L3",
@@ -681,7 +681,7 @@
       }
     },
     "data_classification": "SYNTHETIC DEMO DATA",
-    "prototype_notice": "SAT-SA is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
+    "prototype_notice": "SOCLens is a supervisory analytics prototype, not a SOC, SIEM, certification, or real-time monitor",
     "score": 65.4,
     "confidence": 59.6,
     "maturity": "Provisional",

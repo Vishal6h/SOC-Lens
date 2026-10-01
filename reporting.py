@@ -95,7 +95,7 @@ def assessment_manifest(assessment, report, database_schema_version):
         "data_classification": report.get("data_classification") or (
             "SYNTHETIC DEMO DATA" if report.get("synthetic") is True else "legacy-unclassified"
         ),
-        "prototype_notice": "Supervisory analytics prototype; not certification or real-time monitoring",
+        "prototype_notice": "SOCLens supervisory analytics prototype; not certification or real-time monitoring",
     }
 
 

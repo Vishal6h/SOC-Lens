@@ -1,8 +1,12 @@
-# SAT-SA supervisory analytics demonstrator
+# SOCLens
 
-SAT-SA (Supervisory Analytics Tool for SOC Assessment) is a local, deterministic prototype for assessing how effectively a Security Operations Center executes detection, investigation, escalation, response, closure, telemetry, governance, and evidence discipline. It converts declared operational evidence into explainable supervisory scores, findings, lifecycle evaluations, and historical comparisons.
+**Supervisory Analytics for SOC Assessment**
 
-SAT-SA is **not** a SIEM, SOC, real-time monitor, certification engine, evidence repository, peer benchmark, or production security platform. It does not collect events, operate controls, retrieve referenced evidence, predict performance, or use AI/ML. Scores and references require assessor review.
+SOCLens is a local, evidence-based supervisory analytics platform for assessing SOC operational effectiveness across detection, investigation, escalation, response, closure, telemetry, quality, and governance.
+
+SOCLens is an implementation of the SAT-SA (Supervisory Analytics Tool for SOC Assessment) concept/problem statement. It converts declared operational evidence into explainable supervisory scores, findings, lifecycle evaluations, and historical comparisons.
+
+SOCLens is **not** a SIEM, SOC, real-time monitor, certification engine, evidence repository, peer benchmark, or production security platform. It does not collect events, operate controls, retrieve referenced evidence, predict performance, or use AI/ML. Scores and references require assessor review.
 
 All bundled datasets and history records are synthetic. They are labelled `SYNTHETIC DEMO DATA` in reports, manifests, audit packages, and the dashboard.
 
@@ -70,7 +74,7 @@ detection → investigation → escalation → response → closure
 
 Each present stage has a timestamp and may include status and an opaque `evidence_ref`. Detection must match the linked case's `detected_at`. A contained lifecycle response must match the linked case's `contained_at`; an earlier initial-response event is allowed. Escalation is required only when `escalation_required` is true. Inputs without `lifecycles` retain the legacy calculation path.
 
-Evidence references are identifiers for human verification. SAT-SA does not open `demo://` references, access external systems, or fabricate evidence content.
+Evidence references are identifiers for human verification. SOCLens does not open `demo://` references, access external systems, or fabricate evidence content.
 
 ## Scoring, confidence, and maturity
 

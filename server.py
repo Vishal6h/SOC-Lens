@@ -1,4 +1,4 @@
-"""Local demonstrator. Python 3.10+, no pip packages required."""
+"""SOCLens local demonstrator. Python 3.10+, no pip packages required."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
@@ -125,7 +125,7 @@ def history_api(path, database=DB):
             _drift_for_assessment(database, stored),
         )
         return 200, package, "application/zip", {
-            "Content-Disposition": f'attachment; filename="sat-sa-audit-{assessment_id}.zip"'
+            "Content-Disposition": f'attachment; filename="soclens-audit-{assessment_id}.zip"'
         }
     if parsed.path == "/api/history":
         _only(query, "scope", "limit")
@@ -246,12 +246,12 @@ if __name__ == "__main__":
     except UnsupportedDatabaseVersion as exc:
         raise SystemExit(str(exc))
     except (OSError, ValueError, TypeError, KeyError, sqlite3.Error) as exc:
-        raise SystemExit(f"SAT-SA initialization failed: {exc}")
-    print("SAT-SA local demo: http://127.0.0.1:8765", flush=True)
+        raise SystemExit(f"SOCLens initialization failed: {exc}")
+    print("SOCLens local demo: http://127.0.0.1:8765", flush=True)
     local_server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
     try:
         local_server.serve_forever()
     except KeyboardInterrupt:
-        print("\nSAT-SA local demo stopped.", flush=True)
+        print("\nSOCLens local demo stopped.", flush=True)
     finally:
         local_server.server_close()
