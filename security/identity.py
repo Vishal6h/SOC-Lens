@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime, timezone
 import re
-import sqlite3
 import unicodedata
 import uuid
 
+from persistence.errors import PersistenceConflict
 from .authorization import ROLES
 from .passwords import hash_password, verify_password
-from .storage import connect, initialize_security_database
+from .storage import SecurityStorage
 
 
 USERNAME = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
@@ -71,10 +70,11 @@ def _public(row):
 
 
 class IdentityService:
-    def __init__(self, database, *, scrypt_n=None):
-        self.database = database
+    def __init__(self, database, *, scrypt_n=None, storage=None):
+        self.storage = storage or SecurityStorage(database)
+        self.database = self.storage.path
         self.scrypt_n = scrypt_n
-        initialize_security_database(database)
+        self.storage.initialize()
 
     def create(self, username, display_name, role, password, *, now=None):
         username = normalize_username(username)
@@ -84,8 +84,7 @@ class IdentityService:
         when = timestamp(now)
         user_id = str(uuid.uuid4())
         try:
-            with closing(connect(self.database)) as connection:
-                connection.execute("BEGIN IMMEDIATE")
+            with self.storage.transaction(operation="security_user_create") as connection:
                 connection.execute(
                     """INSERT INTO users
                        (user_id,username,display_name,role,password_credential,credential_version,
@@ -93,13 +92,12 @@ class IdentityService:
                        VALUES (?,?,?,?,?,1,1,?,?,?,NULL)""",
                     (user_id, username, display_name, role, credential, when, when, when),
                 )
-                connection.commit()
-        except sqlite3.IntegrityError as exc:
+        except PersistenceConflict as exc:
             raise IdentityConflict("A user with that username already exists") from exc
         return self.get(user_id)
 
     def get(self, user_id, *, include_credential=False):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_user_read") as connection:
             row = connection.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
         if row is None:
             raise IdentityNotFound("User not found")
@@ -111,7 +109,7 @@ class IdentityService:
 
     def by_username(self, username, *, include_credential=False):
         username = normalize_username(username)
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_user_read") as connection:
             row = connection.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if row is None:
             raise IdentityNotFound("User not found")
@@ -122,12 +120,12 @@ class IdentityService:
         return result
 
     def list(self):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_user_list") as connection:
             rows = connection.execute("SELECT * FROM users ORDER BY username").fetchall()
         return [_public(row) for row in rows]
 
     def admin_count(self):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_admin_count") as connection:
             return connection.execute(
                 "SELECT count(*) FROM users WHERE role='ADMIN'"
             ).fetchone()[0]
@@ -146,32 +144,26 @@ class IdentityService:
             raise ValueError("At least one user field must be changed")
         changes["updated_at"] = timestamp(now)
         assignment = ",".join(f"{name}=?" for name in changes)
-        with closing(connect(self.database)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                row = connection.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
-                if row is None:
-                    raise IdentityNotFound("User not found")
-                if row["role"] == "ADMIN" and bool(row["enabled"]) and (
-                    changes.get("role", "ADMIN") != "ADMIN" or changes.get("enabled", 1) == 0
-                ):
-                    count = connection.execute(
-                        "SELECT count(*) FROM users WHERE role='ADMIN' AND enabled=1"
-                    ).fetchone()[0]
-                    if count <= 1:
-                        raise ValueError("The last enabled administrator cannot be disabled or demoted")
-                connection.execute(
-                    f"UPDATE users SET {assignment} WHERE user_id=?",
-                    (*changes.values(), user_id),
-                )
-                connection.commit()
-            except Exception:
-                connection.rollback()
-                raise
+        with self.storage.transaction(operation="security_user_update") as connection:
+            row = connection.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+            if row is None:
+                raise IdentityNotFound("User not found")
+            if row["role"] == "ADMIN" and bool(row["enabled"]) and (
+                changes.get("role", "ADMIN") != "ADMIN" or changes.get("enabled", 1) == 0
+            ):
+                count = connection.execute(
+                    "SELECT count(*) FROM users WHERE role='ADMIN' AND enabled=1"
+                ).fetchone()[0]
+                if count <= 1:
+                    raise ValueError("The last enabled administrator cannot be disabled or demoted")
+            connection.execute(
+                f"UPDATE users SET {assignment} WHERE user_id=?",
+                (*changes.values(), user_id),
+            )
         return self.get(user_id)
 
     def _enabled_admin_count(self):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_admin_count") as connection:
             return connection.execute(
                 "SELECT count(*) FROM users WHERE role='ADMIN' AND enabled=1"
             ).fetchone()[0]
@@ -186,19 +178,17 @@ class IdentityService:
         self.get(user_id)
         credential = hash_password(new_password, **({"n": self.scrypt_n} if self.scrypt_n else {}))
         when = timestamp(now)
-        with closing(connect(self.database)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.storage.transaction(operation="security_password_reset") as connection:
             connection.execute(
                 """UPDATE users SET password_credential=?, credential_version=credential_version+1,
                    password_changed_at=?, updated_at=? WHERE user_id=?""",
                 (credential, when, when, user_id),
             )
-            connection.commit()
         return self.get(user_id)
 
     def record_login(self, user_id, *, now=None):
         when = timestamp(now)
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_login_record", mode="DEFERRED") as connection:
             connection.execute(
                 "UPDATE users SET last_login_at=?, updated_at=? WHERE user_id=?",
                 (when, when, user_id),

@@ -17,7 +17,7 @@ class ImportNotFound(LookupError):
     pass
 
 
-class StagingStore:
+class FilesystemStagingStore:
     def __init__(self, root):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -83,3 +83,7 @@ class StagingStore:
                 self.delete(directory.name)
                 removed.append(directory.name)
         return removed
+
+
+# Compatibility name retained for existing integrations and file formats.
+StagingStore = FilesystemStagingStore

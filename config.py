@@ -52,6 +52,9 @@ class AppConfig:
     login_block_seconds: int
     password_scrypt_n: int
     cookie_secure: bool
+    database_busy_timeout_ms: int
+    database_journal_mode: str
+    database_synchronous: str
     legacy_database_default: bool = False
 
 
@@ -170,6 +173,10 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
     )
     if environment == "production" and not cookie_secure:
         raise ConfigurationError("SOCLENS_COOKIE_SECURE must be true in production")
+    database_busy_timeout_ms = _integer(
+        "SOCLENS_DB_BUSY_TIMEOUT_MS", values.get("SOCLENS_DB_BUSY_TIMEOUT_MS", "5000"),
+        1, 120_000,
+    )
     log_level = values.get("SOCLENS_LOG_LEVEL", "INFO").strip().upper()
     if log_level not in LOG_LEVELS or not isinstance(
         logging.getLevelName(log_level), int
@@ -196,6 +203,16 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
         and legacy_database.exists()
     )
     default_database = legacy_database if use_legacy_default else data_dir / "db" / "assessments.sqlite3"
+    database_journal_mode = values.get(
+        "SOCLENS_DB_JOURNAL_MODE", "delete" if use_legacy_default else "wal"
+    ).strip().lower()
+    if database_journal_mode not in {"delete", "wal"}:
+        raise ConfigurationError("SOCLENS_DB_JOURNAL_MODE must be delete or wal")
+    database_synchronous = values.get(
+        "SOCLENS_DB_SYNCHRONOUS", "FULL" if database_journal_mode == "delete" else "NORMAL"
+    ).strip().upper()
+    if database_synchronous not in {"FULL", "NORMAL"}:
+        raise ConfigurationError("SOCLENS_DB_SYNCHRONOUS must be FULL or NORMAL")
     database_path = _path(
         "SOCLENS_DB_PATH", values.get("SOCLENS_DB_PATH"), default_database, environment
     )
@@ -260,7 +277,21 @@ def load_config(environ: Mapping[str, str] | None = None, *, root: Path = ROOT) 
         login_block_seconds=login_block_seconds,
         password_scrypt_n=password_scrypt_n,
         cookie_secure=cookie_secure,
+        database_busy_timeout_ms=database_busy_timeout_ms,
+        database_journal_mode=database_journal_mode,
+        database_synchronous=database_synchronous,
         legacy_database_default=use_legacy_default,
+    )
+
+
+def sqlite_settings(config: AppConfig):
+    """Return validated connection settings without exposing environment parsing elsewhere."""
+    from persistence.sqlite import SQLiteSettings
+
+    return SQLiteSettings(
+        busy_timeout_ms=config.database_busy_timeout_ms,
+        journal_mode=config.database_journal_mode,
+        synchronous=config.database_synchronous,
     )
 
 

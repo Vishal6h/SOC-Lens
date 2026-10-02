@@ -3,19 +3,19 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from contextlib import closing
 import argparse
 import hashlib
 import json
 import logging
 import os
-import sqlite3
 import uuid
 
 from assessment_history import SCHEMA_VERSION, UnsupportedDatabaseVersion
-from config import ConfigurationError, initialize_runtime_directories, load_config
+from config import ConfigurationError, initialize_runtime_directories, load_config, sqlite_settings
 from operations import configure_logging
-from security import SecurityAuditLog, initialize_security_database
+from persistence.errors import PersistenceError
+from persistence.sqlite import SQLiteConnectionFactory
+from security import SecurityAuditLog, SecurityStorage
 
 
 LOGGER = logging.getLogger("soclens.database")
@@ -25,21 +25,14 @@ class DatabaseOperationError(RuntimeError):
     """Raised when a backup or restore cannot be completed safely."""
 
 
-def _readonly_connection(path: Path):
-    uri = path.resolve().as_uri() + "?mode=ro"
-    connection = sqlite3.connect(uri, uri=True, timeout=5)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only=ON")
-    return connection
-
-
-def validate_database(path, *, require_current=True) -> dict:
+def validate_database(path, *, require_current=True, factory=None) -> dict:
     """Validate integrity and the minimum SOCLens schema contract."""
     database = Path(path)
     if not database.is_file():
         raise DatabaseOperationError("Database file does not exist")
     try:
-        with closing(_readonly_connection(database)) as connection:
+        source = factory or SQLiteConnectionFactory(database)
+        with source.connection(readonly=True, operation="backup_validation") as connection:
             integrity = connection.execute("PRAGMA quick_check").fetchone()[0]
             if integrity != "ok":
                 raise DatabaseOperationError("Database integrity validation failed")
@@ -56,7 +49,7 @@ def validate_database(path, *, require_current=True) -> dict:
             count = connection.execute("SELECT count(*) FROM assessments").fetchone()[0]
     except (DatabaseOperationError, UnsupportedDatabaseVersion):
         raise
-    except sqlite3.Error as exc:
+    except PersistenceError as exc:
         raise DatabaseOperationError("Database validation failed") from exc
     return {"schema_version": version, "assessment_count": count}
 
@@ -80,25 +73,29 @@ def _reserved_path(directory: Path, prefix: str) -> Path:
     return candidate
 
 
-def _sqlite_backup(source: Path, destination: Path) -> None:
+def _sqlite_backup(source: Path, destination: Path, *, settings=None) -> None:
     try:
-        with closing(_readonly_connection(source)) as source_connection:
-            with closing(sqlite3.connect(destination)) as destination_connection:
+        source_factory = SQLiteConnectionFactory(source, settings=settings)
+        destination_factory = SQLiteConnectionFactory(destination, settings=settings)
+        with source_factory.connection(readonly=True, operation="backup_read") as source_connection:
+            with destination_factory.connection(operation="backup_write") as destination_connection:
                 source_connection.backup(destination_connection)
                 destination_connection.commit()
-    except sqlite3.Error as exc:
+    except PersistenceError as exc:
         raise DatabaseOperationError("SQLite backup operation failed") from exc
 
 
-def backup_database(database, backup_dir, *, prefix="soclens-backup") -> dict:
+def backup_database(database, backup_dir, *, prefix="soclens-backup", settings=None) -> dict:
     """Create and validate a consistent, uniquely named SQLite backup."""
     source = Path(database)
     destination = None
-    metadata = validate_database(source)
+    metadata = validate_database(source, factory=SQLiteConnectionFactory(source, settings=settings))
     try:
         destination = _reserved_path(Path(backup_dir), prefix)
-        _sqlite_backup(source, destination)
-        backup_metadata = validate_database(destination)
+        _sqlite_backup(source, destination, settings=settings)
+        backup_metadata = validate_database(
+            destination, factory=SQLiteConnectionFactory(destination, settings=settings)
+        )
         result = {
             "backup_path": str(destination),
             "backup_name": destination.name,
@@ -127,22 +124,23 @@ def backup_database(database, backup_dir, *, prefix="soclens-backup") -> dict:
     return result
 
 
-def restore_database(database, backup, backup_dir) -> dict:
+def restore_database(database, backup, backup_dir, *, settings=None) -> dict:
     """Validate, safety-backup, stage, and atomically replace a stopped database."""
     active = Path(database)
     candidate = Path(backup)
     if active.resolve() == candidate.resolve():
         raise DatabaseOperationError("Backup and active database must be different files")
-    candidate_metadata = validate_database(candidate)
-    validate_database(active)
+    candidate_metadata = validate_database(
+        candidate, factory=SQLiteConnectionFactory(candidate, settings=settings)
+    )
+    validate_database(active, factory=SQLiteConnectionFactory(active, settings=settings))
 
-    safety = backup_database(active, backup_dir, prefix="soclens-pre-restore")
+    safety = backup_database(active, backup_dir, prefix="soclens-pre-restore", settings=settings)
     staged = None
-    lock = None
     try:
         staged = _reserved_path(active.parent, ".soclens-restore")
-        _sqlite_backup(candidate, staged)
-        validate_database(staged)
+        _sqlite_backup(candidate, staged, settings=settings)
+        validate_database(staged, factory=SQLiteConnectionFactory(staged, settings=settings))
 
         for suffix in ("-wal", "-shm"):
             sidecar = Path(str(active) + suffix)
@@ -150,13 +148,10 @@ def restore_database(database, backup, backup_dir) -> dict:
                 raise DatabaseOperationError(
                     "Active database has SQLite WAL state; stop the service and checkpoint it before restore"
                 )
-        lock = sqlite3.connect(active, timeout=1)
-        lock.execute("BEGIN EXCLUSIVE")
-        os.replace(staged, active)
-        staged = None
-        lock.rollback()
-        lock.close()
-        lock = None
+        lock_factory = SQLiteConnectionFactory(active, settings=settings)
+        with lock_factory.transaction(mode="EXCLUSIVE", operation="restore_lock"):
+            os.replace(staged, active)
+            staged = None
         try:
             descriptor = os.open(active.parent, os.O_RDONLY)
             try:
@@ -168,9 +163,6 @@ def restore_database(database, backup, backup_dir) -> dict:
             # a reason to report the valid restored database as failed.
             pass
     except Exception:
-        if lock is not None:
-            lock.rollback()
-            lock.close()
         if staged is not None:
             try:
                 staged.unlink(missing_ok=True)
@@ -178,7 +170,7 @@ def restore_database(database, backup, backup_dir) -> dict:
                 pass
         raise
 
-    restored = validate_database(active)
+    restored = validate_database(active, factory=SQLiteConnectionFactory(active, settings=settings))
     result = {
         "restored": True,
         "schema_version": restored["schema_version"],
@@ -210,20 +202,31 @@ def main(argv=None) -> int:
         config = load_config()
         initialize_runtime_directories(config)
         configure_logging(config)
-        initialize_security_database(config.security_database_path)
-        security_audit = SecurityAuditLog(config.security_database_path)
+        security_storage = SecurityStorage(
+            config.security_database_path, settings=sqlite_settings(config)
+        )
+        security_storage.initialize(configure=True)
+        security_audit = SecurityAuditLog(
+            config.security_database_path, storage=security_storage
+        )
         if arguments.operation == "backup":
-            result = backup_database(config.database_path, config.backup_dir)
+            result = backup_database(
+                config.database_path, config.backup_dir, settings=sqlite_settings(config)
+            )
             security_audit.append("BACKUP_CREATED", target_type="assessment_database",
                                   target_id=result["backup_name"], context={"method": "cli"})
         else:
             security_audit.append("RESTORE_ATTEMPTED", target_type="assessment_database",
                                   target_id=arguments.backup.name, outcome="ATTEMPTED",
                                   context={"method": "cli"})
-            result = restore_database(config.database_path, arguments.backup, config.backup_dir)
+            result = restore_database(
+                config.database_path, arguments.backup, config.backup_dir,
+                settings=sqlite_settings(config),
+            )
             security_audit.append("RESTORE_COMPLETED", target_type="assessment_database",
                                   target_id=arguments.backup.name, context={"method": "cli"})
-    except (ConfigurationError, DatabaseOperationError, UnsupportedDatabaseVersion, OSError) as exc:
+    except (ConfigurationError, DatabaseOperationError, UnsupportedDatabaseVersion,
+            PersistenceError, OSError) as exc:
         parser.exit(1, f"SOCLens database operation failed: {exc}\n")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

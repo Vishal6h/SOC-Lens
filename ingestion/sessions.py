@@ -38,14 +38,14 @@ class PreparationSession:
         return asdict(self)
 
 
-class PreparationService:
-    def __init__(self, config):
-        self.config = config
-        self.root = Path(config.import_dir) / "sessions"
+class FilesystemPreparationStore:
+    """Atomic JSON implementation of the preparation storage contract."""
+
+    def __init__(self, root):
+        self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         if os.name == "posix":
             os.chmod(self.root, 0o700)
-        self.imports = StagingStore(config.import_dir)
 
     def _directory(self, session_id):
         if not isinstance(session_id, str) or not SESSION_ID.fullmatch(session_id):
@@ -55,7 +55,7 @@ class PreparationService:
             raise ValueError("Invalid session_id")
         return directory
 
-    def _save(self, session):
+    def save(self, session):
         directory = self._directory(session.session_id)
         directory.mkdir(mode=0o700, exist_ok=True)
         payload = (json.dumps(session.document(), sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
@@ -71,12 +71,6 @@ class PreparationService:
                 os.unlink(temporary)
             except FileNotFoundError:
                 pass
-
-    def create(self, values=None):
-        now = datetime.now(timezone.utc).isoformat()
-        session = PreparationSession(uuid.uuid4().hex, now, now)
-        self._save(session)
-        return self.update(session.session_id, values or {}) if values else session
 
     def get(self, session_id):
         try:
@@ -100,6 +94,47 @@ class PreparationService:
         if not sessions:
             raise PreparationNotFound("No active preparation session")
         return max(sessions, key=lambda session: (session.updated_at, session.session_id))
+
+    def delete(self, session_id):
+        directory = self._directory(session_id)
+        if not directory.is_dir():
+            raise PreparationNotFound("Preparation session not found")
+        shutil.rmtree(directory)
+
+    def cleanup(self, older_than_seconds, *, now=None):
+        now = datetime.now(timezone.utc) if now is None else now
+        removed = []
+        for directory in sorted(self.root.iterdir()):
+            if not directory.is_dir() or not SESSION_ID.fullmatch(directory.name):
+                continue
+            try:
+                session = self.get(directory.name)
+                updated = datetime.fromisoformat(session.updated_at.replace("Z", "+00:00"))
+            except (PreparationNotFound, RuntimeError, ValueError):
+                continue
+            if (now - updated).total_seconds() >= older_than_seconds:
+                self.delete(directory.name)
+                removed.append(directory.name)
+        return removed
+
+
+class PreparationService:
+    def __init__(self, config, *, storage=None, import_storage=None):
+        self.config = config
+        self.storage = storage or FilesystemPreparationStore(Path(config.import_dir) / "sessions")
+        self.imports = import_storage or StagingStore(config.import_dir)
+
+    def create(self, values=None):
+        now = datetime.now(timezone.utc).isoformat()
+        session = PreparationSession(uuid.uuid4().hex, now, now)
+        self.storage.save(session)
+        return self.update(session.session_id, values or {}) if values else session
+
+    def get(self, session_id):
+        return self.storage.get(session_id)
+
+    def latest(self):
+        return self.storage.latest()
 
     def update(self, session_id, values):
         if not isinstance(values, dict):
@@ -137,34 +172,18 @@ class PreparationService:
                 session.status = "blocked"
                 session.correlation_readiness = "blocked"
                 session.errors = [{"code": "PREPARATION_INCOMPLETE", "reason": str(exc)}]
-        self._save(session)
+        self.storage.save(session)
         return session
 
     def mark_complete(self, session_id):
         session = self.get(session_id)
         session.status = "complete"
         session.updated_at = datetime.now(timezone.utc).isoformat()
-        self._save(session)
+        self.storage.save(session)
         return session
 
     def delete(self, session_id):
-        directory = self._directory(session_id)
-        if not directory.is_dir():
-            raise PreparationNotFound("Preparation session not found")
-        shutil.rmtree(directory)
+        self.storage.delete(session_id)
 
     def cleanup(self, older_than_seconds, *, now=None):
-        now = datetime.now(timezone.utc) if now is None else now
-        removed = []
-        for directory in sorted(self.root.iterdir()):
-            if not directory.is_dir() or not SESSION_ID.fullmatch(directory.name):
-                continue
-            try:
-                session = self.get(directory.name)
-                updated = datetime.fromisoformat(session.updated_at.replace("Z", "+00:00"))
-            except (PreparationNotFound, RuntimeError, ValueError):
-                continue
-            if (now - updated).total_seconds() >= older_than_seconds:
-                self.delete(directory.name)
-                removed.append(directory.name)
-        return removed
+        return self.storage.cleanup(older_than_seconds, now=now)

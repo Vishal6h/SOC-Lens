@@ -7,10 +7,11 @@ import getpass
 import json
 import sys
 
-from config import ConfigurationError, initialize_runtime_directories, load_config
+from config import ConfigurationError, initialize_runtime_directories, load_config, sqlite_settings
+from persistence.errors import PersistenceError
 from security import (
     AuditChainError, IdentityConflict, IdentityNotFound, IdentityService,
-    SecurityAuditLog, SessionService,
+    SecurityAuditLog, SecurityStorage, SessionService,
 )
 from security.passwords import PasswordPolicyError
 
@@ -28,13 +29,18 @@ def _password(prompt="Password: "):
 
 
 def _services(config):
-    identities = IdentityService(config.security_database_path, scrypt_n=config.password_scrypt_n)
+    storage = SecurityStorage(config.security_database_path, settings=sqlite_settings(config))
+    storage.initialize(configure=True)
+    identities = IdentityService(
+        config.security_database_path, scrypt_n=config.password_scrypt_n, storage=storage
+    )
     sessions = SessionService(
         config.security_database_path,
         idle_minutes=config.session_idle_minutes,
         max_hours=config.session_max_hours,
+        storage=storage,
     )
-    return identities, sessions, SecurityAuditLog(config.security_database_path)
+    return identities, sessions, SecurityAuditLog(config.security_database_path, storage=storage)
 
 
 def build_parser():
@@ -108,7 +114,7 @@ def main(argv=None):
         else:
             result = audit.verify()
     except (ConfigurationError, IdentityConflict, IdentityNotFound, PasswordPolicyError,
-            AuditChainError, OSError, ValueError) as exc:
+            AuditChainError, PersistenceError, OSError, ValueError) as exc:
         parser.exit(1, f"SOCLens security operation failed: {exc}\n")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0

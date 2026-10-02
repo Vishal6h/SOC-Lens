@@ -5,10 +5,9 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 import json
 import logging
-import sqlite3
 from datetime import datetime, timezone
 
-from config import ConfigurationError, initialize_runtime_directories, load_config
+from config import ConfigurationError, initialize_runtime_directories, load_config, sqlite_settings
 from engine import POLICY, assess, compare
 from assessment_history import (
     ComparisonUnavailable,
@@ -24,6 +23,8 @@ from assessment_history import (
     trend,
 )
 from operations import APP_VERSION, configure_logging, operational_status
+from persistence.assessment import SQLiteAssessmentRepository
+from persistence.errors import DatabaseBusy, DatabaseVersionUnsupported, PersistenceError
 from reporting import REPORT_SCHEMA_VERSION, audit_package, supervisor_summary
 from ingestion import ImportService, PreparationService, assemble_imports
 from ingestion.correlation import enrich_report
@@ -32,7 +33,7 @@ from ingestion.staging import ImportNotFound
 from security import (
     AccountDisabled, AuthenticationService, IdentityConflict, IdentityNotFound,
     IdentityService, InvalidCredentials, RateLimited, SecurityAuditLog,
-    SessionExpired, SessionInvalid, SessionService, allowed,
+    SessionExpired, SessionInvalid, SessionService, SecurityStorage, allowed,
     initialize_security_database,
 )
 from security.csrf import CsrfInvalid, require_csrf
@@ -62,13 +63,17 @@ class PermissionDenied(PermissionError):
 
 def security_services(config=None, *, authentication=False):
     config = CONFIG if config is None else config
-    identities = IdentityService(config.security_database_path, scrypt_n=config.password_scrypt_n)
+    storage = SecurityStorage(config.security_database_path, settings=sqlite_settings(config))
+    identities = IdentityService(
+        config.security_database_path, scrypt_n=config.password_scrypt_n, storage=storage
+    )
     sessions = SessionService(
         config.security_database_path,
         idle_minutes=config.session_idle_minutes,
         max_hours=config.session_max_hours,
+        storage=storage,
     )
-    audit = SecurityAuditLog(config.security_database_path)
+    audit = SecurityAuditLog(config.security_database_path, storage=storage)
     if not authentication:
         return identities, sessions, audit
     auth = AuthenticationService(
@@ -77,6 +82,15 @@ def security_services(config=None, *, authentication=False):
         block_seconds=config.login_block_seconds,
     )
     return identities, sessions, audit, auth
+
+
+def assessment_repository(database=None, config=None):
+    """Bind current runtime configuration lazily so isolated tests/embedders can redirect it."""
+    config = CONFIG if config is None else config
+    database = DB if database is None else database
+    return database if isinstance(database, SQLiteAssessmentRepository) else SQLiteAssessmentRepository(
+        database, settings=sqlite_settings(config)
+    )
 
 
 def endpoint_permission(method, path):
@@ -118,7 +132,7 @@ class ServiceServer(ThreadingHTTPServer):
 
 
 def save(data, report, **metadata):
-    return store_assessment(DB, data, report, **metadata)
+    return store_assessment(assessment_repository(), data, report, **metadata)
 
 
 def static_asset(path):
@@ -172,7 +186,7 @@ def read_upload_request(headers, stream, limit, allowed_content_types):
 
 
 def seed_demo_history(database=None):
-    database = DB if database is None else Path(database)
+    database = assessment_repository(database)
     initialize_database(database)
     history_file = ROOT / "data" / "demo-history.json"
     if not history_file.exists():
@@ -211,8 +225,9 @@ def _drift_for_assessment(database, stored):
     return None
 
 
-def history_api(path, database=DB):
+def history_api(path, database=None):
     """Return (status, body) for history routes, or None for other paths."""
+    database = assessment_repository(database)
     parsed = urlparse(path)
     query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=20)
     audit_prefix = "/api/audit/"
@@ -439,19 +454,20 @@ class Handler(BaseHTTPRequestHandler):
             body["comparable"] = False
             self.reply(409, body)
             return True
-        if isinstance(exc, UnsupportedDatabaseVersion):
+        if isinstance(exc, (UnsupportedDatabaseVersion, DatabaseVersionUnsupported)):
             LOGGER.error(
                 "Unsupported database version",
                 extra={"event": "database_unsupported", "component": "database", "error_code": "database_unavailable"},
             )
             self.reply_error(503, "database_unavailable", "Local persistence is not ready")
             return True
-        if isinstance(exc, sqlite3.Error):
+        if isinstance(exc, PersistenceError):
             LOGGER.exception(
                 "Local persistence operation failed",
                 extra={"event": "database_error", "component": "database", "error_code": "persistence_error"},
             )
-            self.reply_error(500, "persistence_error", "Local persistence operation failed")
+            status = 503 if isinstance(exc, DatabaseBusy) else 500
+            self.reply_error(status, "persistence_error", "Local persistence operation failed")
             return True
         if isinstance(exc, UnsupportedMediaType):
             self.reply_error(415, "unsupported_media_type", str(exc))
@@ -551,7 +567,7 @@ class Handler(BaseHTTPRequestHandler):
             assessment_id = unquote(parsed.path[len(report_prefix):])
             if not assessment_id or "/" in assessment_id:
                 raise ValueError("Invalid assessment_id")
-            stored = get_assessment(DB, assessment_id)
+            stored = get_assessment(assessment_repository(), assessment_id)
             _, _, audit = security_services()
             audit.append("ASSESSMENT_EXPORTED", actor_user_id=session["user_id"],
                          target_type="assessment", target_id=assessment_id)
@@ -560,7 +576,7 @@ class Handler(BaseHTTPRequestHandler):
                     "Content-Disposition": f'attachment; filename="soclens-assessment-{assessment_id}.json"'
                 }, assessment_id=assessment_id,
             )
-        history_response = history_api(self.path, DB)
+        history_response = history_api(self.path)
         if history_response is not None:
             if parsed.path.startswith("/api/audit/"):
                 assessment_id = unquote(parsed.path[len("/api/audit/"):])
@@ -573,7 +589,7 @@ class Handler(BaseHTTPRequestHandler):
                 before = json.loads((ROOT / "data/baseline.json").read_text(encoding="utf-8"))
                 after = json.loads((ROOT / "data/degraded.json").read_text(encoding="utf-8"))
                 a, b = assess(before), assess(after)
-            except (UnsupportedDatabaseVersion, sqlite3.Error):
+            except (UnsupportedDatabaseVersion, PersistenceError):
                 raise
             except (OSError, ValueError, TypeError, KeyError) as exc:
                 LOGGER.exception(
@@ -829,9 +845,10 @@ class Handler(BaseHTTPRequestHandler):
 def initialize_service(config=CONFIG):
     initialize_runtime_directories(config)
     configure_logging(config)
-    initialize_database(config.database_path)
-    initialize_security_database(config.security_database_path)
-    seed_demo_history(config.database_path)
+    assessments = SQLiteAssessmentRepository(config.database_path, settings=sqlite_settings(config))
+    assessments.initialize()
+    initialize_security_database(config.security_database_path, settings=sqlite_settings(config))
+    seed_demo_history(assessments)
     status = operational_status(config, config.database_path)
     if status["status"] != "ready":
         raise RuntimeError("SOCLens readiness checks failed during startup")
@@ -841,7 +858,7 @@ def initialize_service(config=CONFIG):
 def main() -> int:
     try:
         status = initialize_service(CONFIG)
-    except (ConfigurationError, UnsupportedDatabaseVersion, OSError, ValueError, TypeError, KeyError, sqlite3.Error, RuntimeError) as exc:
+    except (ConfigurationError, UnsupportedDatabaseVersion, OSError, ValueError, TypeError, KeyError, PersistenceError, RuntimeError) as exc:
         LOGGER.exception(
             "SOCLens initialization failed",
             extra={"event": "service_start_failed", "component": "startup"},

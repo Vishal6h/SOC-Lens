@@ -42,10 +42,10 @@ def _safe_filename(filename):
 
 
 class ImportService:
-    def __init__(self, config):
+    def __init__(self, config, *, storage=None):
         self.config = config
         self.limits = limits_from_config(config)
-        self.store = StagingStore(config.import_dir)
+        self.store = storage or StagingStore(config.import_dir)
 
     def profiles(self):
         return profile_documents()

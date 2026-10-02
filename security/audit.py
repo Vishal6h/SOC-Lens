@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import json
 import re
 import uuid
 
-from .storage import connect, initialize_security_database
+from .storage import SecurityStorage
 
 
 GENESIS_HASH = "0" * 64
@@ -72,9 +71,10 @@ def _entry_hash(document):
 
 
 class SecurityAuditLog:
-    def __init__(self, database):
-        self.database = database
-        initialize_security_database(database)
+    def __init__(self, database, *, storage=None):
+        self.storage = storage or SecurityStorage(database)
+        self.database = self.storage.path
+        self.storage.initialize()
 
     def append(self, event_type, *, actor_user_id=None, target_type=None, target_id=None,
                outcome="SUCCESS", context=None, now=None):
@@ -87,8 +87,7 @@ class SecurityAuditLog:
         target_id = _label("target_id", target_id, 300)
         context = _context(context)
         event_id, when = str(uuid.uuid4()), _timestamp(now)
-        with closing(connect(self.database)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.storage.transaction(operation="security_audit_append") as connection:
             previous = connection.execute(
                 "SELECT sequence,entry_hash FROM security_audit_events ORDER BY sequence DESC LIMIT 1"
             ).fetchone()
@@ -96,7 +95,6 @@ class SecurityAuditLog:
                 "SELECT entry_count,head_hash FROM security_audit_chain_state WHERE singleton=1"
             ).fetchone()
             if state is None or state["entry_count"] != (previous["sequence"] if previous else 0) or state["head_hash"] != (previous["entry_hash"] if previous else GENESIS_HASH):
-                connection.rollback()
                 raise AuditChainError("Security audit chain state does not match the event log")
             previous_hash = previous["entry_hash"] if previous else GENESIS_HASH
             document = {
@@ -106,19 +104,18 @@ class SecurityAuditLog:
                 "outcome": outcome, "context": context, "previous_hash": previous_hash,
             }
             digest = _entry_hash(document)
-            connection.execute(
+            cursor = connection.execute(
                 """INSERT INTO security_audit_events
                    (event_id,timestamp,actor_user_id,event_type,target_type,target_id,outcome,
                     context_json,previous_hash,entry_hash) VALUES (?,?,?,?,?,?,?,?,?,?)""",
                 (event_id, when, actor_user_id, event_type, target_type, target_id, outcome,
                  _canonical(context), previous_hash, digest),
             )
-            sequence = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+            sequence = cursor.lastrowid
             connection.execute(
                 "UPDATE security_audit_chain_state SET entry_count=?,head_hash=? WHERE singleton=1",
                 (sequence, digest),
             )
-            connection.commit()
         document.update({"sequence": sequence, "entry_hash": digest})
         return document
 
@@ -134,7 +131,7 @@ class SecurityAuditLog:
             parameters.append(before_sequence)
         query += " ORDER BY sequence DESC LIMIT ?"
         parameters.append(limit)
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_audit_list") as connection:
             rows = connection.execute(query, parameters).fetchall()
         return [self._document(row) for row in rows]
 
@@ -150,7 +147,7 @@ class SecurityAuditLog:
         }
 
     def verify(self):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_audit_verify") as connection:
             rows = connection.execute(
                 "SELECT * FROM security_audit_events ORDER BY sequence"
             ).fetchall()

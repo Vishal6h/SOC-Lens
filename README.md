@@ -196,12 +196,19 @@ Assessment Engine
    ↓
 Lifecycle / Scoring / Findings
    ↓
-SQLite Assessment History
+Assessment Repository / Explicit Transactions
+   ↓
+SQLite Assessment History (current backend)
    ↓
 Dashboard / Reports / Audit Package
 ```
 
 The backend uses the Python standard library and SQLite. The frontend uses vanilla JavaScript, HTML, and CSS. Core functionality has no external runtime package, API-key, network-service, or build-tool dependency, and backend scores are not recalculated in the browser.
+
+Phase 6A centralizes SQLite connections and transactions, keeps assessment,
+security, and ingestion runtime state in separate persistence boundaries, and
+defines the contract a future PostgreSQL backend must satisfy. PostgreSQL is not
+implemented. See [Persistence architecture](docs/persistence-architecture.md).
 
 ### Application navigation
 
@@ -312,6 +319,9 @@ startup with a clear error.
 | `SOCLENS_PORT` | `8765` | HTTP port, 1–65535 |
 | `SOCLENS_DATA_DIR` | `runtime/` | Persistent runtime root (unique temporary root in test mode) |
 | `SOCLENS_DB_PATH` | environment-specific | SQLite database file |
+| `SOCLENS_DB_BUSY_TIMEOUT_MS` | `5000` | Bounded SQLite lock-wait timeout (1–120000 ms) |
+| `SOCLENS_DB_JOURNAL_MODE` | `wal` for managed runtime; `delete` for legacy default | Allowlisted `wal` or `delete` journal mode |
+| `SOCLENS_DB_SYNCHRONOUS` | `NORMAL` with WAL; `FULL` with delete journal | Allowlisted SQLite durability setting |
 | `SOCLENS_BACKUP_DIR` | `<data>/backups` | Database backup destination |
 | `SOCLENS_EXPORT_DIR` | `<data>/exports` | Operator-managed export destination |
 | `SOCLENS_LOG_DIR` | `<data>/logs` | Rotating service log destination |
@@ -698,7 +708,7 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **164 tests passing**, including production-foundation,
+Current validated status: **177 tests passing**, including production-foundation,
 application-shell, ingestion, correlation, preparation-session, history-compatibility,
 scoring-safety, and regression coverage.
 

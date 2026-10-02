@@ -4,19 +4,19 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from contextlib import closing
 import json
 import logging
 import os
-import sqlite3
 import sys
 
 from assessment_history import SCHEMA_VERSION
-from config import AppConfig
+from config import AppConfig, sqlite_settings
 from engine import POLICY
+from persistence.assessment import SQLiteAssessmentRepository
+from persistence.errors import PersistenceError
 from reporting import REPORT_SCHEMA_VERSION
 from security.audit import AuditChainError, SecurityAuditLog
-from security.storage import SECURITY_SCHEMA_VERSION, security_diagnostics
+from security.storage import SECURITY_SCHEMA_VERSION, SecurityStorage
 
 
 APP_VERSION = "1.0.0"
@@ -25,6 +25,7 @@ LOG_FIELDS = (
     "event", "component", "version", "method", "path", "status_code", "assessment_id",
     "environment", "host", "port", "schema_version", "policy_version",
     "report_schema_version", "database_ready", "backup_name", "error_code", "import_id",
+    "backend", "operation", "outcome", "duration_ms",
 )
 
 
@@ -113,34 +114,22 @@ def filesystem_permissions_status(config: AppConfig) -> dict:
 
 def database_diagnostics(database: Path) -> dict:
     """Perform only bounded, read-only database readiness checks."""
-    try:
-        if not database.is_file():
-            return {"ready": False, "schema_version": None, "reason": "database_unavailable"}
-        uri = f"file:{database.resolve().as_posix()}?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True, timeout=2)) as connection:
-            connection.execute("PRAGMA query_only=ON")
-            version = connection.execute("PRAGMA user_version").fetchone()[0]
-            connection.execute("SELECT 1").fetchone()
-            table = connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='assessments'"
-            ).fetchone()
-        if version != SCHEMA_VERSION:
-            return {"ready": False, "schema_version": version, "reason": "unsupported_schema"}
-        if table is None:
-            return {"ready": False, "schema_version": version, "reason": "schema_incomplete"}
-        return {"ready": True, "schema_version": version, "reason": None}
-    except (OSError, sqlite3.Error):
-        return {"ready": False, "schema_version": None, "reason": "database_unavailable"}
+    capability = SQLiteAssessmentRepository(database).capability().document()
+    capability["ready"] = capability.pop("healthy")
+    return capability
 
 
 def operational_status(config: AppConfig, database: Path) -> dict:
-    database_status = database_diagnostics(database)
-    security_status = security_diagnostics(config.security_database_path)
+    settings = sqlite_settings(config)
+    database_status = SQLiteAssessmentRepository(database, settings=settings).capability().document()
+    database_status["ready"] = database_status.pop("healthy")
+    security_storage = SecurityStorage(config.security_database_path, settings=settings)
+    security_status = security_storage.diagnostics()
     try:
         audit_chain_ready = security_status["ready"] and SecurityAuditLog(
-            config.security_database_path
+            config.security_database_path, storage=security_storage
         ).verify()["valid"]
-    except (AuditChainError, OSError, sqlite3.Error):
+    except (AuditChainError, OSError, PersistenceError):
         audit_chain_ready = False
     directories_ready = runtime_directories_ready(config)
     permissions = filesystem_permissions_status(config)
@@ -156,12 +145,16 @@ def operational_status(config: AppConfig, database: Path) -> dict:
         "status": "ready" if ready else "not_ready",
         "environment": config.environment,
         "database": {
+            "backend": database_status["backend"],
             "ready": database_status["ready"],
             "schema_version": database_status["schema_version"],
+            "writable": database_status["writable"],
         },
         "security": {
+            "backend": security_status["backend"],
             "ready": security_status["ready"],
             "schema_version": security_status["schema_version"],
+            "writable": security_status["writable"],
             "authentication": "enabled" if config.auth_mode == "local" else "test_bypass",
             "administrator_ready": administrator_ready,
             "audit_chain_ready": audit_chain_ready,

@@ -10,13 +10,13 @@ from .authentication import (
 )
 from .identity import IdentityConflict, IdentityNotFound, IdentityService
 from .sessions import SessionExpired, SessionInvalid, SessionService
-from .storage import initialize_security_database, security_diagnostics
+from .storage import SecurityStorage, initialize_security_database, security_diagnostics
 
 __all__ = [
     "AccountDisabled", "AuditChainError", "AuthenticationService",
     "IdentityConflict", "IdentityNotFound", "IdentityService",
     "InvalidCredentials", "PERMISSIONS", "ROLE_PERMISSIONS", "ROLES",
     "RateLimited", "SecurityAuditLog", "SessionExpired", "SessionInvalid",
-    "SessionService", "allowed", "initialize_security_database",
+    "SessionService", "SecurityStorage", "allowed", "initialize_security_database",
     "security_diagnostics",
 ]

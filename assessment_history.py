@@ -1,23 +1,17 @@
 """Versioned local assessment history and deterministic trend analysis."""
 from datetime import datetime, timezone
-from pathlib import Path
-from contextlib import contextmanager
 import json
-import logging
-import os
 import re
-import sqlite3
 import uuid
 
 from engine import POLICY, compare
+from persistence.assessment import SCHEMA_VERSION, SQLiteAssessmentRepository
+from persistence.errors import DatabaseVersionUnsupported
 from reporting import DOMAINS, assessment_manifest, supervisor_summary
 
-SCHEMA_VERSION = 2
-MIGRATION_PATHS = {0: SCHEMA_VERSION, 1: SCHEMA_VERSION}
 OVERALL_DECLINE_THRESHOLD = 10.0
 DOMAIN_DECLINE_THRESHOLD = 10.0
 ASSESSMENT_ID = re.compile(r"^[A-Za-z0-9._-]{1,200}$")
-LOGGER = logging.getLogger("soclens.database")
 
 
 class HistoryNotFound(LookupError):
@@ -28,169 +22,21 @@ class ComparisonUnavailable(ValueError):
     pass
 
 
-class UnsupportedDatabaseVersion(RuntimeError):
-    pass
+UnsupportedDatabaseVersion = DatabaseVersionUnsupported
 
 
-def _connect(path):
-    connection = sqlite3.connect(Path(path))
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA busy_timeout=5000")
-    return connection
-
-
-@contextmanager
-def _database(path):
-    connection = _connect(path)
-    try:
-        yield connection
-        connection.commit()
-    except Exception:
-        connection.rollback()
-        raise
-    finally:
-        connection.close()
-
-
-def _table_exists(connection, name):
-    return connection.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
-    ).fetchone() is not None
-
-
-def _create_v2(connection):
-    connection.execute("""
-        CREATE TABLE IF NOT EXISTS assessments (
-            assessment_id TEXT PRIMARY KEY,
-            scope TEXT NOT NULL,
-            assessed_at TEXT NOT NULL,
-            evidence_as_of TEXT NOT NULL,
-            policy_version TEXT NOT NULL,
-            input_sha256 TEXT NOT NULL,
-            scope_sha256 TEXT NOT NULL,
-            overall_score REAL NOT NULL,
-            confidence REAL NOT NULL,
-            maturity TEXT NOT NULL,
-            detection_score REAL NOT NULL,
-            response_score REAL NOT NULL,
-            telemetry_score REAL NOT NULL,
-            quality_score REAL NOT NULL,
-            governance_score REAL NOT NULL,
-            lifecycle_enabled INTEGER NOT NULL CHECK (lifecycle_enabled IN (0, 1)),
-            evidence TEXT NOT NULL,
-            report TEXT NOT NULL,
-            origin TEXT NOT NULL
-        )
-    """)
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS assessments_scope_time ON assessments(scope, assessed_at, assessment_id)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS assessments_compatibility ON assessments(scope, policy_version, scope_sha256, assessed_at)"
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS assessments_input_sha ON assessments(input_sha256)"
-    )
-
-
-def _legacy_value(report, key, default):
-    value = report.get(key, default)
-    return default if value is None else value
-
-
-def _migrate_v1_rows(connection):
-    if not _table_exists(connection, "assessments_legacy_v1"):
-        return
-    rows = connection.execute(
-        "SELECT sha256, scope, as_of, evidence, report FROM assessments_legacy_v1 ORDER BY rowid"
-    ).fetchall()
-    for row in rows:
-        try:
-            report = json.loads(row["report"])
-        except (TypeError, json.JSONDecodeError):
-            report = {}
-        domains = report.get("domains") if isinstance(report.get("domains"), dict) else {}
-        policy = report.get("policy") if isinstance(report.get("policy"), dict) else {}
-        lifecycle = report.get("lifecycle") if isinstance(report.get("lifecycle"), dict) else {}
-        input_sha = str(_legacy_value(report, "sha256", row["sha256"]))
-        scope_hash = str(_legacy_value(report, "scope_sha256", "legacy-unavailable-" + input_sha))
-        values = (
-            "legacy-" + str(row["sha256"]),
-            str(_legacy_value(report, "scope", row["scope"])),
-            str(_legacy_value(report, "as_of", row["as_of"])),
-            str(_legacy_value(report, "as_of", row["as_of"])),
-            str(policy.get("id", "legacy-unknown")),
-            input_sha,
-            scope_hash,
-            float(_legacy_value(report, "score", 0.0)),
-            float(_legacy_value(report, "confidence", 0.0)),
-            str(_legacy_value(report, "maturity", "Unknown")),
-            float(domains.get("Detection", 0.0)),
-            float(domains.get("Response", 0.0)),
-            float(domains.get("Telemetry", 0.0)),
-            float(domains.get("Quality", 0.0)),
-            float(domains.get("Governance", 0.0)),
-            int(lifecycle.get("enabled") is True),
-            row["evidence"],
-            row["report"],
-            "migrated-v1",
-        )
-        connection.execute(
-            "INSERT OR IGNORE INTO assessments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            values,
-        )
+def _repository(value):
+    return value if isinstance(value, SQLiteAssessmentRepository) else SQLiteAssessmentRepository(value)
 
 
 def initialize_database(path):
-    """Create schema v2 or migrate the original SHA-keyed table without deleting it."""
-    with _database(path) as connection:
-        current_version = connection.execute("PRAGMA user_version").fetchone()[0]
-        if current_version > SCHEMA_VERSION:
-            raise UnsupportedDatabaseVersion(
-                f"Database schema version {current_version} is newer than supported version {SCHEMA_VERSION}"
-            )
-        if current_version not in (*MIGRATION_PATHS, SCHEMA_VERSION):
-            raise UnsupportedDatabaseVersion(
-                f"Database schema version {current_version} has no supported migration path"
-            )
-        connection.execute("BEGIN IMMEDIATE")
-        migration_needed = current_version != SCHEMA_VERSION
-        if _table_exists(connection, "assessments"):
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(assessments)")
-            }
-            if "assessment_id" not in columns:
-                if current_version == SCHEMA_VERSION:
-                    raise RuntimeError("Database schema does not match its declared version")
-                if _table_exists(connection, "assessments_legacy_v1"):
-                    raise RuntimeError("Cannot migrate: assessments_legacy_v1 already exists")
-                connection.execute("ALTER TABLE assessments RENAME TO assessments_legacy_v1")
-        _create_v2(connection)
-        _migrate_v1_rows(connection)
-        connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
-    if migration_needed:
-        LOGGER.info(
-            "Database schema initialized or migrated",
-            extra={
-                "event": "database_migration_complete",
-                "component": "database",
-                "schema_version": SCHEMA_VERSION,
-            },
-        )
-    if os.name == "posix":
-        os.chmod(Path(path), 0o600)
+    """Initialize through the assessment repository schema owner."""
+    _repository(path).initialize()
 
 
 def database_schema_version(path):
-    """Return the declared SQLite schema version without changing the database."""
-    database = Path(path)
-    if not database.is_file():
-        return None
-    connection = _connect(database)
-    try:
-        return connection.execute("PRAGMA user_version").fetchone()[0]
-    finally:
-        connection.close()
+    """Return the declared schema version without changing the database."""
+    return _repository(path).schema_version()
 
 
 def _validated_time(value):
@@ -217,7 +63,7 @@ def _validated_id(value, *, generate=False):
 
 def store_assessment(path, evidence, report, *, assessed_at=None, assessment_id=None, origin="assessment", if_absent=False):
     """Store one historical run. Input hashes are deliberately not unique."""
-    initialize_database(path)
+    repository = _repository(path)
     assessment_id = _validated_id(assessment_id, generate=True)
     assessed_at = _validated_time(assessed_at)
     domains = report["domains"]
@@ -243,72 +89,29 @@ def store_assessment(path, evidence, report, *, assessed_at=None, assessment_id=
         json.dumps(report, sort_keys=True, separators=(",", ":"), allow_nan=False),
         str(origin),
     )
-    with _database(path) as connection:
-        connection.execute(
-            ("INSERT OR IGNORE" if if_absent else "INSERT") + " INTO assessments VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            values,
-        )
+    repository.save(values, if_absent=if_absent)
     return assessment_id
 
 
 def assessment_exists(path, assessment_id):
-    initialize_database(path)
-    with _database(path) as connection:
-        return connection.execute(
-            "SELECT 1 FROM assessments WHERE assessment_id=?", (assessment_id,)
-        ).fetchone() is not None
-
-
-def _summary(row):
-    return {
-        "assessment_id": row["assessment_id"],
-        "scope": row["scope"],
-        "assessed_at": row["assessed_at"],
-        "evidence_as_of": row["evidence_as_of"],
-        "policy_version": row["policy_version"],
-        "input_sha256": row["input_sha256"],
-        "scope_sha256": row["scope_sha256"],
-        "score": row["overall_score"],
-        "confidence": row["confidence"],
-        "maturity": row["maturity"],
-        "domains": {
-            "Detection": row["detection_score"],
-            "Response": row["response_score"],
-            "Telemetry": row["telemetry_score"],
-            "Quality": row["quality_score"],
-            "Governance": row["governance_score"],
-        },
-        "lifecycle_enabled": bool(row["lifecycle_enabled"]),
-        "origin": row["origin"],
-    }
+    return _repository(path).exists(_validated_id(assessment_id))
 
 
 def list_assessments(path, scope, *, limit=100, chronological=False):
-    initialize_database(path)
     if not isinstance(scope, str) or not scope or len(scope) > 100:
         raise ValueError("scope is required")
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
         raise ValueError("limit must be between 1 and 500")
-    direction = "ASC" if chronological else "DESC"
-    with _database(path) as connection:
-        rows = connection.execute(
-            f"SELECT * FROM assessments WHERE scope=? ORDER BY assessed_at {direction}, assessment_id {direction} LIMIT ?",
-            (scope, limit),
-        ).fetchall()
-    return [_summary(row) for row in rows]
+    return _repository(path).list(scope, limit=limit, chronological=chronological)
 
 
 def get_assessment(path, assessment_id, *, include_evidence=False):
-    initialize_database(path)
     assessment_id = _validated_id(assessment_id)
-    with _database(path) as connection:
-        row = connection.execute(
-            "SELECT * FROM assessments WHERE assessment_id=?", (assessment_id,)
-        ).fetchone()
-    if row is None:
+    stored = _repository(path).get(assessment_id)
+    if stored is None:
         raise HistoryNotFound("Assessment not found")
-    report = json.loads(row["report"])
-    summary = _summary(row)
+    report = stored["report"]
+    summary = stored["summary"]
     result = {
         "assessment": summary,
         "manifest": assessment_manifest(summary, report, SCHEMA_VERSION),
@@ -316,7 +119,7 @@ def get_assessment(path, assessment_id, *, include_evidence=False):
         "supervisory_summary": supervisor_summary(report),
     }
     if include_evidence:
-        result["evidence"] = json.loads(row["evidence"])
+        result["evidence"] = stored["evidence"]
     return result
 
 

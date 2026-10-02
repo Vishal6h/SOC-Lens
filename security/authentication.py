@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
 
 from .identity import IdentityNotFound, IdentityService, normalize_username
 from .passwords import hash_password, verify_password
-from .storage import connect
 
 
 class InvalidCredentials(PermissionError):
@@ -38,6 +36,7 @@ class AuthenticationService:
             raise ValueError("Login protection settings are out of bounds")
         self.identities, self.sessions, self.audit = identities, sessions, audit
         self.database = identities.database
+        self.storage = identities.storage
         self.attempt_limit = attempt_limit
         self.window_minutes = window_minutes
         self.block_seconds = block_seconds
@@ -52,7 +51,7 @@ class AuthenticationService:
         return hashlib.sha256(bounded).hexdigest()
 
     def _attempt(self, key):
-        with closing(connect(self.database)) as connection:
+        with self.storage.connection(readonly=True, operation="security_login_attempt_read") as connection:
             return connection.execute(
                 "SELECT * FROM login_attempts WHERE attempt_key=?", (key,)
             ).fetchone()
@@ -62,8 +61,7 @@ class AuthenticationService:
         return bool(row and row["blocked_until"] and now < _parse(row["blocked_until"]))
 
     def _failure(self, key, now):
-        with closing(connect(self.database)) as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with self.storage.transaction(operation="security_login_attempt_write") as connection:
             row = connection.execute(
                 "SELECT * FROM login_attempts WHERE attempt_key=?", (key,)
             ).fetchone()
@@ -80,7 +78,6 @@ class AuthenticationService:
                    failure_count=excluded.failure_count,blocked_until=excluded.blocked_until""",
                 (key, started.isoformat(), count, blocked.isoformat() if blocked else None),
             )
-            connection.commit()
         return count, blocked
 
     def login(self, username, password, *, client="local", now=None):
@@ -113,7 +110,7 @@ class AuthenticationService:
             self.audit.append("LOGIN_FAILURE", actor_user_id=user["user_id"], outcome="DENIED",
                               context={"reason": "account_disabled", "client": str(client)[:100]}, now=when)
             raise AccountDisabled("Account is disabled")
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_login_attempt_clear", mode="DEFERRED") as connection:
             connection.execute("DELETE FROM login_attempts WHERE attempt_key=?", (key,))
         self.identities.record_login(user["user_id"], now=when)
         created = self.sessions.create(user, now=when, client_context={"client": str(client)[:100]})

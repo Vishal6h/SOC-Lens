@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import closing
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -10,7 +9,7 @@ import json
 import secrets
 
 from .authorization import permissions_for
-from .storage import connect, initialize_security_database
+from .storage import SecurityStorage
 
 
 class SessionInvalid(PermissionError):
@@ -44,13 +43,14 @@ def csrf_valid(raw_token, expected_hash):
 
 
 class SessionService:
-    def __init__(self, database, *, idle_minutes=30, max_hours=12):
+    def __init__(self, database, *, idle_minutes=30, max_hours=12, storage=None):
         if not 1 <= idle_minutes <= 1440 or not 1 <= max_hours <= 168:
             raise ValueError("Session durations are out of bounds")
-        self.database = database
+        self.storage = storage or SecurityStorage(database)
+        self.database = self.storage.path
         self.idle_minutes = idle_minutes
         self.max_hours = max_hours
-        initialize_security_database(database)
+        self.storage.initialize()
 
     def create(self, user, *, now=None, client_context=None):
         when = _now(now)
@@ -59,7 +59,7 @@ class SessionService:
         absolute = when + timedelta(hours=self.max_hours)
         idle = min(absolute, when + timedelta(minutes=self.idle_minutes))
         context = None if client_context is None else json.dumps(client_context, sort_keys=True, separators=(",", ":"))[:500]
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_session_create", mode="DEFERRED") as connection:
             connection.execute(
                 """INSERT INTO sessions
                    (session_hash,user_id,credential_version,csrf_hash,created_at,last_activity_at,
@@ -74,7 +74,7 @@ class SessionService:
         if not isinstance(token, str) or not 20 <= len(token) <= 200:
             raise SessionInvalid("Authentication is required")
         when = _now(now)
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_session_authenticate") as connection:
             row = connection.execute(
                 """SELECT s.*,u.username,u.display_name,u.role,u.enabled,u.updated_at,
                           u.password_changed_at,u.credential_version AS current_credential_version
@@ -115,7 +115,7 @@ class SessionService:
 
     def issue_csrf(self, session_hash):
         token = secrets.token_urlsafe(32)
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_session_csrf", mode="DEFERRED") as connection:
             cursor = connection.execute(
                 "UPDATE sessions SET csrf_hash=? WHERE session_hash=? AND revoked=0",
                 (_hash(token), session_hash),
@@ -128,7 +128,7 @@ class SessionService:
         when = _now(now).isoformat()
         if not isinstance(token, str) or not 20 <= len(token) <= 200:
             return False
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_session_revoke", mode="DEFERRED") as connection:
             cursor = connection.execute(
                 "UPDATE sessions SET revoked=1,revoked_at=? WHERE session_hash=? AND revoked=0",
                 (when, _hash(token)),
@@ -142,7 +142,7 @@ class SessionService:
         if except_session_hash:
             query += " AND session_hash<>?"
             parameters.append(except_session_hash)
-        with closing(connect(self.database)) as connection:
+        with self.storage.transaction(operation="security_session_revoke_user") as connection:
             cursor = connection.execute(query, parameters)
         return cursor.rowcount
 
