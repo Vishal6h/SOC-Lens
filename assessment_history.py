@@ -4,6 +4,7 @@ from pathlib import Path
 from contextlib import contextmanager
 import json
 import logging
+import os
 import re
 import sqlite3
 import uuid
@@ -176,6 +177,8 @@ def initialize_database(path):
                 "schema_version": SCHEMA_VERSION,
             },
         )
+    if os.name == "posix":
+        os.chmod(Path(path), 0o600)
 
 
 def database_schema_version(path):

@@ -7,3 +7,8 @@ __pycache__/
 exports/
 runtime/
 *.tmp
+.env
+.env.*
+secrets/
+*.key
+*.pem

@@ -24,7 +24,8 @@ class IngestionTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.config = load_config({"SOCLENS_ENV": "test", "SOCLENS_DATA_DIR": self.temporary.name}, root=ROOT)
+        self.config = load_config({"SOCLENS_ENV": "test", "SOCLENS_DATA_DIR": self.temporary.name,
+                                   "SOCLENS_AUTH_MODE": "disabled"}, root=ROOT)
         initialize_runtime_directories(self.config)
         self.service = ImportService(self.config)
 
@@ -180,7 +181,8 @@ class IngestionApiTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.config = load_config({"SOCLENS_ENV": "test", "SOCLENS_DATA_DIR": self.temporary.name}, root=ROOT)
+        self.config = load_config({"SOCLENS_ENV": "test", "SOCLENS_DATA_DIR": self.temporary.name,
+                                   "SOCLENS_AUTH_MODE": "disabled"}, root=ROOT)
         initialize_runtime_directories(self.config)
         initialize_database(self.config.database_path)
         self.original_config, self.original_database = server_module.CONFIG, server_module.DB

@@ -15,6 +15,7 @@ import uuid
 from assessment_history import SCHEMA_VERSION, UnsupportedDatabaseVersion
 from config import ConfigurationError, initialize_runtime_directories, load_config
 from operations import configure_logging
+from security import SecurityAuditLog, initialize_security_database
 
 
 LOGGER = logging.getLogger("soclens.database")
@@ -69,7 +70,9 @@ def _digest(path: Path) -> str:
 
 
 def _reserved_path(directory: Path, prefix: str) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if os.name == "posix":
+        os.chmod(directory, 0o700)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
     candidate = directory / f"{prefix}-{timestamp}-{uuid.uuid4().hex[:8]}.sqlite3"
     descriptor = os.open(candidate, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
@@ -207,10 +210,19 @@ def main(argv=None) -> int:
         config = load_config()
         initialize_runtime_directories(config)
         configure_logging(config)
+        initialize_security_database(config.security_database_path)
+        security_audit = SecurityAuditLog(config.security_database_path)
         if arguments.operation == "backup":
             result = backup_database(config.database_path, config.backup_dir)
+            security_audit.append("BACKUP_CREATED", target_type="assessment_database",
+                                  target_id=result["backup_name"], context={"method": "cli"})
         else:
+            security_audit.append("RESTORE_ATTEMPTED", target_type="assessment_database",
+                                  target_id=arguments.backup.name, outcome="ATTEMPTED",
+                                  context={"method": "cli"})
             result = restore_database(config.database_path, arguments.backup, config.backup_dir)
+            security_audit.append("RESTORE_COMPLETED", target_type="assessment_database",
+                                  target_id=arguments.backup.name, context={"method": "cli"})
     except (ConfigurationError, DatabaseOperationError, UnsupportedDatabaseVersion, OSError) as exc:
         parser.exit(1, f"SOCLens database operation failed: {exc}\n")
     print(json.dumps(result, indent=2, sort_keys=True))

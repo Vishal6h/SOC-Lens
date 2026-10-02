@@ -10,7 +10,22 @@
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
 
-  <header class="app-header">
+  <main id="login-view" class="login-view" aria-labelledby="login-title">
+    <section class="login-card">
+      <p class="eyebrow">LOCAL / CONTROLLED ACCESS</p>
+      <h1 id="login-title">SOCLens</h1>
+      <p class="login-subtitle">Supervisory Analytics for SOC Assessment</p>
+      <form id="login-form">
+        <label>Username<input id="login-username" name="username" type="text" autocomplete="username" maxlength="64" required></label>
+        <label>Password<input id="login-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+        <button id="login-submit" type="submit">Sign in</button>
+      </form>
+      <p id="login-message" class="login-message" role="alert" aria-live="polite"></p>
+      <p class="muted">Authentication is local to this SOCLens service. Contact an administrator if access is unavailable.</p>
+    </section>
+  </main>
+
+  <header id="app-header" class="app-header" hidden>
     <div class="header-brand">
       <button id="menu-toggle" class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false" aria-label="Open navigation">☰</button>
       <a href="#dashboard" class="brand-link" aria-label="SOCLens Dashboard">
@@ -21,10 +36,12 @@
     <div class="header-status" aria-label="Application status">
       <span id="service-indicator" class="service-pill loading"><span aria-hidden="true"></span> Checking service</span>
       <span id="data-label" class="data-pill">Loading assessment</span>
+      <span id="current-user" class="user-pill"></span>
+      <button id="sign-out" class="sign-out" type="button">Sign out</button>
     </div>
   </header>
 
-  <div class="app-shell">
+  <div id="app-shell" class="app-shell" hidden>
     <aside id="sidebar" class="sidebar" aria-label="Application navigation">
       <nav id="primary-nav">
         <a href="#dashboard" data-page="dashboard"><span class="nav-mark" aria-hidden="true">D</span><span>Dashboard</span></a>
@@ -120,7 +137,7 @@
           <div><h3>Demonstration assessments</h3><p class="muted">These bundled scenarios are explicitly synthetic and remain separate from uploaded evidence.</p></div>
           <div class="actions"><button id="baseline" type="button">Baseline demo</button><button id="degraded" type="button">Degraded demo</button></div>
         </article>
-        <article class="panel page-panel import-workflow" aria-labelledby="new-assessment-title">
+        <article id="import-workflow" class="panel page-panel import-workflow" aria-labelledby="new-assessment-title" data-requires-permission="evidence.import">
           <div class="section-heading">
             <div><p class="eyebrow">NEW ASSESSMENT</p><h2 id="new-assessment-title">Upload exported evidence</h2><p class="muted">Choose an explicit mapping, preview validation, combine evidence categories, then run the assessment.</p></div>
             <span id="import-status" class="count-badge">No imports</span>
@@ -225,7 +242,7 @@
 
       <section id="page-reports" class="app-page" data-page-panel="reports" hidden>
         <div class="page-intro"><div><p class="eyebrow">REPORTS</p><h2>Assessment exports and provenance</h2><p>Download the current result or its reproducible audit package. Technical identifiers remain available below.</p></div></div>
-        <div class="export-grid">
+        <div id="report-export-actions" class="export-grid" data-requires-permission="report.export">
           <article class="panel export-card">
             <p class="eyebrow">ASSESSMENT REPORT</p><h2>Detailed assessment result</h2>
             <p>Machine-readable JSON containing scores, findings, lifecycle analysis, confidence, and policy information.</p>
@@ -265,6 +282,27 @@
           <h2>Runtime configuration</h2>
           <p>Managed through SOCLens runtime configuration.</p>
           <p class="muted">Sensitive paths and environment values are intentionally not exposed here.</p>
+        </article>
+        <article class="panel page-panel">
+          <div class="section-heading"><div><p class="eyebrow">ACCOUNT SECURITY</p><h2>Change password</h2></div></div>
+          <form id="password-change-form" class="security-form">
+            <label>Current password<input id="current-password" type="password" autocomplete="current-password" maxlength="1024" required></label>
+            <label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
+            <button type="submit">Change password</button>
+          </form>
+          <p id="password-change-message" class="muted" role="status"></p>
+        </article>
+        <article id="user-administration" class="panel page-panel" data-requires-permission="security.user.read" hidden>
+          <div class="section-heading"><div><p class="eyebrow">ADMIN ONLY</p><h2>User administration</h2><p class="muted">Create, assign, disable, or reset local accounts. Accounts are retained for auditability.</p></div></div>
+          <form id="create-user-form" class="security-form" data-requires-permission="security.user.create">
+            <label>Username<input id="new-user-username" type="text" maxlength="64" required></label>
+            <label>Display name<input id="new-user-display" type="text" maxlength="100" required></label>
+            <label>Role<select id="new-user-role"><option>ASSESSOR</option><option>SUPERVISOR</option><option>REVIEWER</option><option>AUDITOR</option><option>ADMIN</option></select></label>
+            <label>Initial password<input id="new-user-password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required></label>
+            <button type="submit">Create user</button>
+          </form>
+          <p id="user-admin-message" class="muted" role="status"></p>
+          <div id="user-list" class="user-list"></div>
         </article>
         <div id="settings-message" class="empty-state" role="status"></div>
       </section>

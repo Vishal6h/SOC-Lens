@@ -29,6 +29,8 @@ let preparationSession=null;
 let historyState=null;
 let historyRequest=0;
 let renderedPages=new Set();
+let authSession=null;
+let csrfToken=null;
 const historyCache=new Map();
 const storedCache=new Map();
 
@@ -95,8 +97,19 @@ function apiErrorMessage(body,fallback){
   return fallback;
 }
 
+function hasPermission(permission){return !!(authSession&&Array.isArray(authSession.permissions)&&authSession.permissions.includes(permission));}
+
+async function apiFetch(url,options={}){
+  const request={...options,headers:{...(options.headers||{})}};
+  const method=String(request.method||'GET').toUpperCase();
+  if(['POST','PUT','PATCH','DELETE'].includes(method)&&csrfToken)request.headers['X-CSRF-Token']=csrfToken;
+  const response=await fetch(url,request);
+  if(response.status===401&&url!=='/api/auth/login'&&url!=='/api/auth/session')showLogin('Your session ended. Sign in again.');
+  return response;
+}
+
 async function fetchJson(url,fallback='Request failed'){
-  const response=await fetch(url);
+  const response=await apiFetch(url);
   let body;
   try{body=await response.json();}catch(error){throw Error(fallback);}
   if(!response.ok)throw Error(apiErrorMessage(body,fallback));
@@ -105,8 +118,11 @@ async function fetchJson(url,fallback='Request failed'){
 
 function currentRoute(){
   const page=window.location.hash.slice(1).toLowerCase();
-  return PAGES.includes(page)?page:'dashboard';
+  const selected=baseRoute(page);
+  if(selected==='history'&&!hasPermission('history.read'))return 'dashboard';
+  return selected;
 }
+function baseRoute(page){return PAGES.includes(page)?page:'dashboard';}
 
 function applyRoute(){
   const raw=window.location.hash.slice(1).toLowerCase();
@@ -191,7 +207,8 @@ function setAssessment(report,assessmentId=null,manifest=null){
   renderedPages.add('dashboard');
   setStatus(assessmentLabel()+' loaded · '+(report.scope||'Scope not reported'));
   ensurePageRendered(currentRoute());
-  loadHistory(report.scope);
+  if(hasPermission('history.read'))loadHistory(report.scope);
+  else{historyState={error:'Your role does not include assessment history.'};updateDashboardHistory();}
 }
 
 function updateDataClassification(report){
@@ -809,7 +826,7 @@ function refreshHistoryConsumers(){
 }
 
 function renderReports(report){
-  el('download-audit').disabled=!currentAssessmentId;
+  el('download-audit').disabled=!currentAssessmentId||!hasPermission('report.export');
   const container=el('report-current');
   container.replaceChildren(
     detailItem('Assessment Identifier',currentAssessmentId||'Not yet available'),
@@ -864,17 +881,19 @@ function renderSettings(){
   }
   const database=serviceState.database||{};const ready=serviceState.status==='ready';status.textContent=ready?'Ready':'Needs attention';status.className='count-badge badge '+(ready?'ready':'needs-attention');
   grid.append(
+    detailItem('Signed in as',authSession&&authSession.user?`${authSession.user.display_name} · ${authSession.user.role}`:'Unavailable'),
     detailItem('Environment',title(serviceState.environment)),detailItem('Service Status',ready?'Running and ready':'Running, not ready'),
     detailItem('Application Version',serviceState.version),detailItem('Active Policy',serviceState.policy_version),
     detailItem('Database Readiness',database.ready?'Ready':'Not ready'),detailItem('Database Schema',database.schema_version??'Unavailable'),
     detailItem('Report Schema',serviceState.report_schema_version),detailItem('Runtime Directories',serviceState.directories_ready?'Ready':'Not ready')
   );
   if(!ready)message.append(add('p','One or more local dependencies are not ready. Review the service logs and runtime configuration.','empty-state error-state'));
+  if(hasPermission('security.user.read'))loadUsers();
 }
 
 async function loadServiceStatus(){
   try{
-    const response=await fetch('/api/ready');let body;
+    const response=await apiFetch('/api/ready');let body;
     try{body=await response.json();}catch(error){throw Error('Readiness response was not valid JSON');}
     serviceState=body;
     const ready=response.ok&&body.status==='ready';
@@ -885,17 +904,21 @@ async function loadServiceStatus(){
   if(currentRoute()==='settings')renderSettings();
 }
 
-function downloadReport(){
-  if(!current){setStatus('No assessment is available to export.',true);return;}
-  const link=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(current,null,2)],{type:'application/json'}));
-  link.href=url;link.download='soclens-assessment.json';link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);setStatus('Assessment report exported.');
+async function downloadReport(){
+  if(!currentAssessmentId){setStatus('No persisted assessment is available to export.',true);return;}
+  try{
+    const response=await apiFetch('/api/report/'+encodeURIComponent(currentAssessmentId));
+    if(!response.ok){const error=await response.json();throw Error(apiErrorMessage(error,'Assessment report export failed'));}
+    const link=document.createElement('a');const url=URL.createObjectURL(await response.blob());
+    link.href=url;link.download='soclens-assessment-'+currentAssessmentId+'.json';link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);setStatus('Assessment report exported.');
+  }catch(error){setStatus(error.message,true);}
 }
 
 async function downloadAudit(){
   if(!currentAssessmentId)return;
   setStatus('Preparing audit package…');
   try{
-    const response=await fetch('/api/audit/'+encodeURIComponent(currentAssessmentId));
+    const response=await apiFetch('/api/audit/'+encodeURIComponent(currentAssessmentId));
     if(!response.ok){const error=await response.json();throw Error(apiErrorMessage(error,'Audit package export failed'));}
     const link=document.createElement('a');const url=URL.createObjectURL(await response.blob());link.href=url;link.download='soclens-audit-'+currentAssessmentId+'.zip';link.click();window.setTimeout(()=>URL.revokeObjectURL(url),1000);setStatus('Audit package exported for '+currentAssessmentId+'.');
   }catch(error){setStatus(error.message,true);}
@@ -962,13 +985,13 @@ async function stageImport(){
   if(!sourceFormat){setStatus('Evidence file must use a .csv or .json extension.',true);return;}
   try{
     setStatus('Validating and mapping evidence…');const query=new URLSearchParams({profile:profile.key,filename:file.name,format:sourceFormat});
-    const response=await fetch('/api/import?'+query,{method:'POST',headers:{'Content-Type':sourceFormat==='csv'?'text/csv':'application/json'},body:file});const body=await response.json();
+    const response=await apiFetch('/api/import?'+query,{method:'POST',headers:{'Content-Type':sourceFormat==='csv'?'text/csv':'application/json'},body:file});const body=await response.json();
     if(!response.ok)throw Error(apiErrorMessage(body,'Evidence import failed'));stagedImports.push(body);renderImportWorkspace();await syncPreparationSession();setStatus(body.status==='ready'?'Evidence mapped and ready for combined validation.':'Evidence contains errors; review the import preview.',body.status!=='ready');
   }catch(error){setStatus(error.message,true);}finally{el('upload').value='';}
 }
 
 async function removeImport(importId){
-  try{stagedImports=stagedImports.filter(job=>job.import_id!==importId);await syncPreparationSession();const response=await fetch('/api/import/'+encodeURIComponent(importId),{method:'DELETE'});const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Import could not be removed'));renderImportWorkspace();setStatus('Staged import removed.');}catch(error){setStatus(error.message,true);}
+  try{stagedImports=stagedImports.filter(job=>job.import_id!==importId);await syncPreparationSession();const response=await apiFetch('/api/import/'+encodeURIComponent(importId),{method:'DELETE'});const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Import could not be removed'));renderImportWorkspace();setStatus('Staged import removed.');}catch(error){setStatus(error.message,true);}
 }
 
 async function clearImports(){for(const job of [...stagedImports])await removeImport(job.import_id);}
@@ -986,14 +1009,14 @@ function preparationValues(){
 }
 
 async function createPreparationSession(){
-  const response=await fetch('/api/preparation',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const body=await response.json();
+  const response=await apiFetch('/api/preparation',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});const body=await response.json();
   if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be created'));preparationSession=body;return body;
 }
 
 async function syncPreparationSession(){
   try{
     if(!preparationSession)await createPreparationSession();
-    const response=await fetch('/api/preparation/'+encodeURIComponent(preparationSession.session_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(preparationValues())});const body=await response.json();
+    const response=await apiFetch('/api/preparation/'+encodeURIComponent(preparationSession.session_id),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(preparationValues())});const body=await response.json();
     if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be saved'));preparationSession=body;
     if(body.coverage)renderCoverage(body.coverage);buildReady=body.status==='ready';el('run-import-assessment').disabled=!buildReady;
     if(body.correlation_readiness&&body.correlation_readiness!=='not_evaluated')el('build-message').textContent=`Preparation saved · correlation ${title(body.correlation_readiness)}`;
@@ -1002,7 +1025,7 @@ async function syncPreparationSession(){
 
 async function loadPreparationSession(){
   try{
-    const response=await fetch('/api/preparation/latest');
+    const response=await apiFetch('/api/preparation/latest');
     if(response.status===404){await createPreparationSession();return;}
     const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Preparation session could not be restored'));preparationSession=body;
     el('build-scope').value=body.scope||'';el('build-synthetic').checked=body.synthetic===true;
@@ -1013,7 +1036,7 @@ async function loadPreparationSession(){
 }
 
 async function requestAssessmentBuild(action){
-  const response=await fetch('/api/assessment-build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(assessmentBuildRequest(action))});let body;
+  const response=await apiFetch('/api/assessment-build',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(assessmentBuildRequest(action))});let body;
   try{body=await response.json();}catch(error){throw Error('Assessment build response was not valid JSON');}
   if(!response.ok)throw Error(apiErrorMessage(body,'Assessment build failed'));return {body,response};
 }
@@ -1026,7 +1049,102 @@ async function runImportedAssessment(){
   try{setStatus('Running assessment from mapped evidence…');await syncPreparationSession();const {body,response}=await requestAssessmentBuild('assess');historyCache.delete(body.scope);mode='import';setAssessment(body,response.headers.get('X-Assessment-ID'));preparationSession=null;stagedImports=[];renderImportWorkspace();await createPreparationSession();window.location.hash='#assessments';setStatus('Imported evidence assessed and stored locally.');}catch(error){setStatus(error.message,true);}
 }
 
+function applyPermissions(){
+  document.querySelectorAll('[data-requires-permission]').forEach(node=>{node.hidden=!hasPermission(node.dataset.requiresPermission);});
+  const pagePermissions={history:'history.read'};
+  document.querySelectorAll('#primary-nav a').forEach(link=>{const permission=pagePermissions[link.dataset.page];link.hidden=!!permission&&!hasPermission(permission);});
+  el('download-audit').disabled=!currentAssessmentId||!hasPermission('report.export');
+}
+
+function showLogin(message=''){
+  authSession=null;csrfToken=null;demo=null;current=null;currentAssessmentId=null;currentManifest=null;
+  stagedImports=[];preparationSession=null;historyCache.clear();storedCache.clear();
+  el('app-header').hidden=true;el('app-shell').hidden=true;el('login-view').hidden=false;
+  el('login-message').textContent=message;el('login-password').value='';
+  window.setTimeout(()=>el('login-username').focus(),0);
+}
+
+function showApplication(session){
+  authSession=session;csrfToken=session.csrf_token;
+  el('login-view').hidden=true;el('app-header').hidden=false;el('app-shell').hidden=false;
+  el('current-user').textContent=`${session.user.display_name} · ${session.user.role}`;
+  applyPermissions();
+}
+
+async function checkSession(){
+  try{
+    const response=await fetch('/api/auth/session');
+    if(!response.ok){showLogin();return false;}
+    const session=await response.json();showApplication(session);return true;
+  }catch(error){showLogin('SOCLens could not reach the local service.');return false;}
+}
+
+async function signIn(event){
+  event.preventDefault();
+  const button=el('login-submit');button.disabled=true;el('login-message').textContent='Signing in…';
+  try{
+    const response=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:el('login-username').value,password:el('login-password').value})});
+    const body=await response.json();
+    if(!response.ok)throw Error(apiErrorMessage(body,'Invalid username or password.'));
+    showApplication(body);el('login-password').value='';await startAuthenticated();
+  }catch(error){showLogin(error.message);}
+  finally{button.disabled=false;}
+}
+
+async function signOut(){
+  try{await apiFetch('/api/auth/logout',{method:'POST'});}finally{showLogin('Signed out.');}
+}
+
+async function changePassword(event){
+  event.preventDefault();const message=el('password-change-message');message.textContent='Changing password…';
+  try{
+    const response=await apiFetch('/api/auth/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:el('current-password').value,new_password:el('new-password').value})});
+    const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Password change failed'));
+    authSession=body;csrfToken=body.csrf_token;el('current-password').value='';el('new-password').value='';message.textContent='Password changed. Other sessions were revoked.';
+  }catch(error){message.textContent=error.message;}
+}
+
+async function createUser(event){
+  event.preventDefault();const message=el('user-admin-message');message.textContent='Creating user…';
+  try{
+    const response=await apiFetch('/api/security/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:el('new-user-username').value,display_name:el('new-user-display').value,role:el('new-user-role').value,password:el('new-user-password').value})});
+    const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'User creation failed'));
+    el('create-user-form').reset();message.textContent='User created.';await loadUsers();
+  }catch(error){message.textContent=error.message;}
+}
+
+async function updateUser(userId,values){
+  const response=await apiFetch('/api/security/users/'+encodeURIComponent(userId),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(values)});
+  const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'User update failed'));return body.user;
+}
+
+async function resetUserPassword(userId,password){
+  const response=await apiFetch('/api/security/users/'+encodeURIComponent(userId)+'/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({new_password:password})});
+  const body=await response.json();if(!response.ok)throw Error(apiErrorMessage(body,'Credential reset failed'));return body.user;
+}
+
+function renderUsers(users){
+  const container=el('user-list');container.replaceChildren();
+  for(const user of users){
+    const row=add('article','','user-admin-row');const identity=add('div');identity.append(add('p',user.display_name),add('small',`${user.username} · ${user.enabled?'Enabled':'Disabled'}`));
+    const role=document.createElement('select');for(const name of ['ADMIN','SUPERVISOR','ASSESSOR','REVIEWER','AUDITOR']){const option=add('option',name);option.value=name;option.selected=name===user.role;role.append(option);}
+    role.setAttribute('aria-label','Role for '+user.username);role.onchange=async()=>{try{await updateUser(user.user_id,{role:role.value});el('user-admin-message').textContent='Role updated.';await loadUsers();}catch(error){el('user-admin-message').textContent=error.message;}};
+    const toggle=add('button',user.enabled?'Disable':'Enable','table-action');toggle.type='button';toggle.onclick=async()=>{try{await updateUser(user.user_id,{enabled:!user.enabled});el('user-admin-message').textContent=user.enabled?'User disabled and sessions revoked.':'User enabled.';await loadUsers();}catch(error){el('user-admin-message').textContent=error.message;}};
+    const reset=add('div');const password=document.createElement('input');password.type='password';password.placeholder='New password';password.autocomplete='new-password';password.minLength=12;password.maxLength=1024;password.setAttribute('aria-label','New password for '+user.username);const resetButton=add('button','Reset','table-action');resetButton.type='button';resetButton.onclick=async()=>{try{await resetUserPassword(user.user_id,password.value);password.value='';el('user-admin-message').textContent='Credential reset; old sessions revoked.';}catch(error){el('user-admin-message').textContent=error.message;}};reset.append(password,resetButton);
+    row.append(identity,role,toggle,reset);container.append(row);
+  }
+}
+
+async function loadUsers(){
+  if(!hasPermission('security.user.read'))return;
+  try{const body=await fetchJson('/api/security/users','Users could not be loaded');renderUsers(body.users||[]);}catch(error){el('user-admin-message').textContent=error.message;}
+}
+
 function attachEvents(){
+  el('login-form').addEventListener('submit',signIn);
+  el('sign-out').addEventListener('click',signOut);
+  el('password-change-form').addEventListener('submit',changePassword);
+  el('create-user-form').addEventListener('submit',createUser);
   window.addEventListener('hashchange',applyRoute);
   el('menu-toggle').addEventListener('click',toggleNavigation);
   el('baseline').addEventListener('click',()=>{if(demo){mode='baseline';setAssessment(demo.baseline,demo.assessment_ids&&demo.assessment_ids.baseline);}});
@@ -1052,10 +1170,16 @@ async function loadDemo(){
   }catch(error){setStatus(error.message,true);renderNoAssessment(currentRoute());}
 }
 
-function init(){
-  attachEvents();applyRoute();loadServiceStatus();loadImportProfiles();renderImportWorkspace();
+async function startAuthenticated(){
+  applyRoute();loadServiceStatus();renderImportWorkspace();
   const now=new Date();now.setMinutes(now.getMinutes()-now.getTimezoneOffset());el('build-as-of').value=now.toISOString().slice(0,16);
-  loadPreparationSession();loadDemo();
+  if(hasPermission('evidence.import')){loadImportProfiles();loadPreparationSession();}
+  loadDemo();
+}
+
+async function init(){
+  attachEvents();
+  if(await checkSession())await startAuthenticated();
 }
 
 init();

@@ -1,5 +1,6 @@
 """SOCLens local service. Python 3.10+, no pip packages required."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 import json
@@ -28,6 +29,13 @@ from ingestion import ImportService, PreparationService, assemble_imports
 from ingestion.correlation import enrich_report
 from ingestion.sessions import PreparationNotFound
 from ingestion.staging import ImportNotFound
+from security import (
+    AccountDisabled, AuthenticationService, IdentityConflict, IdentityNotFound,
+    IdentityService, InvalidCredentials, RateLimited, SecurityAuditLog,
+    SessionExpired, SessionInvalid, SessionService, allowed,
+    initialize_security_database,
+)
+from security.csrf import CsrfInvalid, require_csrf
 
 
 ROOT = Path(__file__).resolve().parent
@@ -44,8 +52,60 @@ STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
-    "/sample.json": ("data/baseline.json", "application/json; charset=utf-8"),
 }
+SESSION_COOKIE = "soclens_session"
+
+
+class PermissionDenied(PermissionError):
+    pass
+
+
+def security_services(config=None, *, authentication=False):
+    config = CONFIG if config is None else config
+    identities = IdentityService(config.security_database_path, scrypt_n=config.password_scrypt_n)
+    sessions = SessionService(
+        config.security_database_path,
+        idle_minutes=config.session_idle_minutes,
+        max_hours=config.session_max_hours,
+    )
+    audit = SecurityAuditLog(config.security_database_path)
+    if not authentication:
+        return identities, sessions, audit
+    auth = AuthenticationService(
+        identities, sessions, audit, attempt_limit=config.login_attempt_limit,
+        window_minutes=config.login_attempt_window_minutes,
+        block_seconds=config.login_block_seconds,
+    )
+    return identities, sessions, audit, auth
+
+
+def endpoint_permission(method, path):
+    """Return the explicit permission for an API route; None still requires a session."""
+    if path == "/api/ready":
+        return "operations.status.read"
+    if path == "/api/demo":
+        return "assessment.read"
+    if path == "/api/assess":
+        return "assessment.run"
+    if path == "/api/assessment-build":
+        return "assessment.run"
+    if path.startswith("/api/history"):
+        return "history.read"
+    if path.startswith("/api/audit/"):
+        return "report.export"
+    if path.startswith("/api/report/"):
+        return "assessment.export"
+    if path == "/api/import/profiles" or path.startswith("/api/import"):
+        return "evidence.delete_staged" if method == "DELETE" else "evidence.import"
+    if path.startswith("/api/preparation"):
+        return "assessment.create"
+    if path == "/api/security/users":
+        return "security.user.read" if method == "GET" else "security.user.create"
+    if path.startswith("/api/security/users/"):
+        return "security.user.update"
+    if path == "/api/security/audit":
+        return "security.audit.read"
+    return None
 
 
 class UnsupportedMediaType(ValueError):
@@ -216,13 +276,104 @@ class Handler(BaseHTTPRequestHandler):
             },
         )
 
+    def _cookie_token(self):
+        raw = self.headers.get("Cookie", "")
+        if not raw or len(raw) > 4096:
+            return None
+        try:
+            cookies = SimpleCookie()
+            cookies.load(raw)
+            value = cookies.get(SESSION_COOKIE)
+            return value.value if value is not None else None
+        except Exception:
+            return None
+
+    def _session_cookie(self, token, *, clear=False):
+        parts = [f"{SESSION_COOKIE}={'' if clear else token}", "Path=/", "HttpOnly", "SameSite=Strict"]
+        if CONFIG.cookie_secure:
+            parts.append("Secure")
+        if clear:
+            parts.extend(["Max-Age=0", "Expires=Thu, 01 Jan 1970 00:00:00 GMT"])
+        return "; ".join(parts)
+
+    def _same_origin(self):
+        if self.headers.get("Sec-Fetch-Site") == "cross-site":
+            return False
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        parsed = urlparse(origin)
+        host = self.headers.get("Host")
+        return parsed.scheme in {"http", "https"} and bool(host) and parsed.netloc.casefold() == host.casefold()
+
+    def _client_context(self):
+        address = getattr(self, "client_address", ("local", 0))
+        return str(address[0])[:100]
+
+    def _authorize(self, permission=None, *, csrf=False):
+        cached = getattr(self, "security_session", None)
+        if cached is None:
+            if CONFIG.auth_mode == "disabled":
+                cached = {
+                    "user_id": "test-bypass", "username": "test-bypass",
+                    "display_name": "Test Bypass", "role": "ADMIN",
+                    "permissions": sorted(allowed_permission for allowed_permission in (
+                        "assessment.read", "assessment.create", "assessment.run", "assessment.export",
+                        "incident.read", "finding.read", "history.read", "evidence.import",
+                        "evidence.delete_staged", "report.read", "report.export", "policy.read",
+                        "security.user.read", "security.user.create", "security.user.update",
+                        "security.user.disable", "security.audit.read", "operations.status.read",
+                        "operations.backup", "operations.restore",
+                    )),
+                    "csrf_hash": "", "session_hash": "test-bypass",
+                }
+                self.security_token = None
+            else:
+                token = self._cookie_token()
+                if token is None:
+                    raise SessionInvalid("Authentication is required")
+                _, sessions, _ = security_services()
+                cached = sessions.authenticate(token)
+                self.security_token = token
+            self.security_session = cached
+        if permission and not allowed(cached["role"], permission):
+            if CONFIG.auth_mode != "disabled":
+                _, _, audit = security_services()
+                audit.append(
+                    "AUTHORIZATION_DENIED", actor_user_id=cached["user_id"], outcome="DENIED",
+                    context={"method": self.command, "path": urlparse(self.path).path,
+                             "permission": permission},
+                )
+            raise PermissionDenied("Permission denied")
+        if csrf and CONFIG.auth_mode != "disabled":
+            if not self._same_origin():
+                raise CsrfInvalid("Cross-site request rejected")
+            require_csrf(self.headers, cached)
+        return cached
+
+    @staticmethod
+    def _session_document(session, csrf_token=None):
+        document = {
+            "authenticated": True,
+            "user": {
+                "user_id": session["user_id"], "username": session["username"],
+                "display_name": session["display_name"], "role": session["role"],
+            },
+            "permissions": session["permissions"],
+            "idle_expires_at": session.get("idle_expires_at"),
+            "absolute_expires_at": session.get("absolute_expires_at"),
+        }
+        if csrf_token is not None:
+            document["csrf_token"] = csrf_token
+        return document
+
     def reply(self, status, body, content_type="application/json; charset=utf-8", headers=None, assessment_id=None):
         raw = body if isinstance(body, bytes) else json.dumps(body, allow_nan=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; base-uri 'none'; object-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Cache-Control", "no-store")
@@ -243,10 +394,37 @@ class Handler(BaseHTTPRequestHandler):
             },
         )
 
-    def reply_error(self, status, code, message):
-        return self.reply(status, error_document(code, message))
+    def reply_error(self, status, code, message, headers=None):
+        return self.reply(status, error_document(code, message), headers=headers)
 
     def _handle_expected_error(self, exc):
+        if isinstance(exc, SessionExpired):
+            self.reply_error(401, "SESSION_EXPIRED", "Session has expired", headers={"Set-Cookie": self._session_cookie("", clear=True)})
+            return True
+        if isinstance(exc, SessionInvalid):
+            self.reply_error(401, "AUTHENTICATION_REQUIRED", "Authentication is required", headers={"Set-Cookie": self._session_cookie("", clear=True)})
+            return True
+        if isinstance(exc, CsrfInvalid):
+            self.reply_error(403, "CSRF_INVALID", "CSRF token is missing or invalid")
+            return True
+        if isinstance(exc, PermissionDenied):
+            self.reply_error(403, "PERMISSION_DENIED", "Permission denied")
+            return True
+        if isinstance(exc, RateLimited):
+            self.reply_error(429, "RATE_LIMITED", str(exc), headers={"Retry-After": str(CONFIG.login_block_seconds)})
+            return True
+        if isinstance(exc, InvalidCredentials):
+            self.reply_error(401, "INVALID_CREDENTIALS", "Invalid username or password.")
+            return True
+        if isinstance(exc, AccountDisabled):
+            self.reply_error(403, "ACCOUNT_DISABLED", "Account is disabled")
+            return True
+        if isinstance(exc, IdentityConflict):
+            self.reply_error(409, "USER_CONFLICT", str(exc))
+            return True
+        if isinstance(exc, IdentityNotFound):
+            self.reply_error(404, "USER_NOT_FOUND", "User not found")
+            return True
         if isinstance(exc, HistoryNotFound):
             self.reply_error(404, "assessment_not_found", str(exc))
             return True
@@ -308,9 +486,36 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/api/health" and not parsed.query:
             return self.reply(200, {"status": "ok", "service": "SOCLens"})
+        asset = static_asset(self.path)
+        if asset:
+            file, mime = asset
+            return self.reply(200, file.read_bytes(), mime)
+        if parsed.path == "/api/auth/session" and not parsed.query:
+            session = self._authorize()
+            if CONFIG.auth_mode == "disabled":
+                return self.reply(200, self._session_document(session, "test-bypass"))
+            _, sessions, _ = security_services()
+            csrf_token = sessions.issue_csrf(session["session_hash"])
+            return self.reply(200, self._session_document(session, csrf_token))
+        session = self._authorize(endpoint_permission("GET", parsed.path))
         if parsed.path == "/api/ready" and not parsed.query:
             status = operational_status(CONFIG, Path(DB))
             return self.reply(200 if status["status"] == "ready" else 503, status)
+        if parsed.path == "/api/security/users" and not parsed.query:
+            identities, _, _ = security_services()
+            return self.reply(200, {"users": identities.list()})
+        if parsed.path == "/api/security/audit":
+            query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=5)
+            _only(query, "limit", "before_sequence")
+            limit_value = _one(query, "limit", required=False)
+            before_value = _one(query, "before_sequence", required=False)
+            _, _, audit = security_services()
+            return self.reply(200, {
+                "events": audit.list(
+                    limit=int(limit_value) if limit_value else 100,
+                    before_sequence=int(before_value) if before_value else None,
+                )
+            })
         if parsed.path == "/api/import/profiles" and not parsed.query:
             return self.reply(200, {"profiles": ImportService(CONFIG).profiles()})
         if parsed.path == "/api/preparation/latest" and not parsed.query:
@@ -340,19 +545,34 @@ class Handler(BaseHTTPRequestHandler):
             _only(query)
             return self.reply(200, service.get(import_id).public_document())
 
+        report_prefix = "/api/report/"
+        if parsed.path.startswith(report_prefix):
+            _only(parse_qs(parsed.query, keep_blank_values=True, max_num_fields=2))
+            assessment_id = unquote(parsed.path[len(report_prefix):])
+            if not assessment_id or "/" in assessment_id:
+                raise ValueError("Invalid assessment_id")
+            stored = get_assessment(DB, assessment_id)
+            _, _, audit = security_services()
+            audit.append("ASSESSMENT_EXPORTED", actor_user_id=session["user_id"],
+                         target_type="assessment", target_id=assessment_id)
+            return self.reply(
+                200, stored["report"], headers={
+                    "Content-Disposition": f'attachment; filename="soclens-assessment-{assessment_id}.json"'
+                }, assessment_id=assessment_id,
+            )
         history_response = history_api(self.path, DB)
         if history_response is not None:
+            if parsed.path.startswith("/api/audit/"):
+                assessment_id = unquote(parsed.path[len("/api/audit/"):])
+                _, _, audit = security_services()
+                audit.append("AUDIT_PACKAGE_EXPORTED", actor_user_id=session["user_id"],
+                             target_type="assessment", target_id=assessment_id)
             return self.reply(*history_response)
-        asset = static_asset(self.path)
-        if asset:
-            file, mime = asset
-            return self.reply(200, file.read_bytes(), mime)
         if parsed.path == "/api/demo" and not parsed.query:
             try:
                 before = json.loads((ROOT / "data/baseline.json").read_text(encoding="utf-8"))
                 after = json.loads((ROOT / "data/degraded.json").read_text(encoding="utf-8"))
                 a, b = assess(before), assess(after)
-                seed_demo_history()
             except (UnsupportedDatabaseVersion, sqlite3.Error):
                 raise
             except (OSError, ValueError, TypeError, KeyError) as exc:
@@ -373,13 +593,80 @@ class Handler(BaseHTTPRequestHandler):
         return self._dispatch(self._do_POST)
 
     def _do_POST(self):
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
-            return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
         parsed = urlparse(self.path)
+        if parsed.path == "/api/auth/login" and not parsed.query:
+            if not self._same_origin():
+                return self.reply_error(403, "CSRF_INVALID", "Cross-site request rejected")
+            request = read_json_request(self.headers, self.rfile, min(CONFIG.request_size_limit, 16_384))
+            if not isinstance(request, dict) or set(request) != {"username", "password"}:
+                raise ValueError("Login requires username and password")
+            _, sessions, _, authentication = security_services(authentication=True)
+            user, created = authentication.login(
+                request["username"], request["password"], client=self._client_context()
+            )
+            session = sessions.authenticate(created["token"])
+            return self.reply(
+                200, self._session_document(session, created["csrf_token"]),
+                headers={"Set-Cookie": self._session_cookie(created["token"])},
+            )
+        session = self._authorize(endpoint_permission("POST", parsed.path), csrf=True)
+        if parsed.path == "/api/auth/logout" and not parsed.query:
+            if CONFIG.auth_mode != "disabled":
+                _, sessions, audit = security_services()
+                sessions.revoke(self.security_token)
+                audit.append("LOGOUT", actor_user_id=session["user_id"], outcome="SUCCESS")
+            return self.reply(200, {"authenticated": False},
+                              headers={"Set-Cookie": self._session_cookie("", clear=True)})
+        if parsed.path == "/api/auth/password" and not parsed.query:
+            request = read_json_request(self.headers, self.rfile, min(CONFIG.request_size_limit, 16_384))
+            if not isinstance(request, dict) or set(request) != {"current_password", "new_password"}:
+                raise ValueError("Password change requires current_password and new_password")
+            identities, sessions, audit = security_services()
+            identities.change_password(session["user_id"], request["current_password"], request["new_password"])
+            revoked = sessions.revoke_user(session["user_id"])
+            updated = identities.get(session["user_id"], include_credential=True)
+            created = sessions.create(updated, client_context={"client": self._client_context()})
+            rotated = sessions.authenticate(created["token"])
+            audit.append("PASSWORD_CHANGED", actor_user_id=session["user_id"],
+                         target_type="user", target_id=session["user_id"], context={"method": "self_service"})
+            audit.append("SESSION_REVOKED", actor_user_id=session["user_id"],
+                         target_type="user", target_id=session["user_id"], context={"count": revoked})
+            return self.reply(
+                200, self._session_document(rotated, created["csrf_token"]),
+                headers={"Set-Cookie": self._session_cookie(created["token"])},
+            )
+        if parsed.path == "/api/security/users" and not parsed.query:
+            request = read_json_request(self.headers, self.rfile, min(CONFIG.request_size_limit, 32_768))
+            if not isinstance(request, dict) or set(request) != {"username", "display_name", "role", "password"}:
+                raise ValueError("User creation requires username, display_name, role, and password")
+            identities, _, audit = security_services()
+            created = identities.create(request["username"], request["display_name"], request["role"], request["password"])
+            audit.append("USER_CREATED", actor_user_id=session["user_id"], target_type="user",
+                         target_id=created["user_id"], context={"role": created["role"]})
+            return self.reply(201, {"user": created})
+        security_prefix = "/api/security/users/"
+        if parsed.path.startswith(security_prefix) and parsed.path.endswith("/reset-password") and not parsed.query:
+            user_id = unquote(parsed.path[len(security_prefix):-len("/reset-password")])
+            if not user_id or "/" in user_id:
+                raise ValueError("Invalid user_id")
+            request = read_json_request(self.headers, self.rfile, min(CONFIG.request_size_limit, 16_384))
+            if not isinstance(request, dict) or set(request) != {"new_password"}:
+                raise ValueError("Credential reset requires new_password")
+            identities, sessions, audit = security_services()
+            updated = identities.reset_password(user_id, request["new_password"])
+            revoked = sessions.revoke_user(user_id)
+            audit.append("PASSWORD_CHANGED", actor_user_id=session["user_id"], target_type="user",
+                         target_id=user_id, context={"method": "admin_reset"})
+            audit.append("SESSION_REVOKED", actor_user_id=session["user_id"], target_type="user",
+                         target_id=user_id, context={"count": revoked})
+            return self.reply(200, {"user": updated})
         if parsed.path == "/api/assess" and not parsed.query:
             data = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
             report = assess(data)
             assessment_id = save(data, report, origin="import")
+            _, _, audit = security_services()
+            audit.append("ASSESSMENT_CREATED", actor_user_id=session["user_id"],
+                         target_type="assessment", target_id=assessment_id)
             return self.reply(200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id)
         if parsed.path == "/api/import":
             query = parse_qs(parsed.query, keep_blank_values=True, max_num_fields=5)
@@ -392,6 +679,10 @@ class Handler(BaseHTTPRequestHandler):
             allowed = {"text/csv", "application/csv"} if source_format == "csv" else {"application/json"}
             raw = read_upload_request(self.headers, self.rfile, CONFIG.ingestion_max_upload_bytes, allowed)
             job = ImportService(CONFIG).create(raw, filename=filename, profile_key=profile, source_format=source_format)
+            _, _, audit = security_services()
+            audit.append("IMPORT_CREATED", actor_user_id=session["user_id"],
+                         target_type="import", target_id=job.import_id,
+                         context={"profile": profile, "format": source_format, "status": job.status})
             return self.reply(201, job.public_document(), assessment_id=None)
         if parsed.path == "/api/preparation" and not parsed.query:
             request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
@@ -446,6 +737,10 @@ class Handler(BaseHTTPRequestHandler):
             assessment_id = save(evidence, report, origin="ingestion")
             if session_id is not None:
                 PreparationService(CONFIG).mark_complete(session_id)
+            _, _, audit = security_services()
+            audit.append("ASSESSMENT_CREATED", actor_user_id=session["user_id"],
+                         target_type="assessment", target_id=assessment_id,
+                         context={"origin": "ingestion"})
             return self.reply(200, report, headers={"X-Assessment-ID": assessment_id}, assessment_id=assessment_id)
         return self.reply_error(404, "not_found", "Not found")
 
@@ -453,9 +748,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._dispatch(self._do_DELETE)
 
     def _do_DELETE(self):
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
-            return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
         parsed = urlparse(self.path)
+        session = self._authorize(endpoint_permission("DELETE", parsed.path), csrf=True)
         if parsed.path.startswith("/api/preparation/") and not parsed.query:
             session_id = unquote(parsed.path[len("/api/preparation/"):])
             if not session_id or "/" in session_id:
@@ -468,15 +762,17 @@ class Handler(BaseHTTPRequestHandler):
         if not import_id or "/" in import_id:
             raise ValueError("Invalid import_id")
         ImportService(CONFIG).delete(import_id)
+        _, _, audit = security_services()
+        audit.append("IMPORT_DELETED", actor_user_id=session["user_id"],
+                     target_type="import", target_id=import_id)
         return self.reply(200, {"deleted": True, "import_id": import_id})
 
     def do_PUT(self):
         return self._dispatch(self._do_PUT)
 
     def _do_PUT(self):
-        if self.headers.get("Sec-Fetch-Site") == "cross-site":
-            return self.reply_error(403, "cross_site_rejected", "Cross-site requests rejected")
         parsed = urlparse(self.path)
+        self._authorize(endpoint_permission("PUT", parsed.path), csrf=True)
         if not parsed.path.startswith("/api/preparation/") or parsed.query:
             return self.reply_error(404, "not_found", "Not found")
         session_id = unquote(parsed.path[len("/api/preparation/"):])
@@ -485,14 +781,45 @@ class Handler(BaseHTTPRequestHandler):
         request = read_json_request(self.headers, self.rfile, CONFIG.request_size_limit)
         return self.reply(200, PreparationService(CONFIG).update(session_id, request).document())
 
+    def do_PATCH(self):
+        return self._dispatch(self._do_PATCH)
+
+    def _do_PATCH(self):
+        parsed = urlparse(self.path)
+        actor = self._authorize(endpoint_permission("PATCH", parsed.path), csrf=True)
+        prefix = "/api/security/users/"
+        if not parsed.path.startswith(prefix) or parsed.query:
+            return self.reply_error(404, "not_found", "Not found")
+        user_id = unquote(parsed.path[len(prefix):])
+        if not user_id or "/" in user_id:
+            raise ValueError("Invalid user_id")
+        request = read_json_request(self.headers, self.rfile, min(CONFIG.request_size_limit, 32_768))
+        if not isinstance(request, dict) or not request or set(request) - {"role", "enabled", "display_name"}:
+            raise ValueError("User update contains unsupported fields")
+        if request.get("enabled") is False and not allowed(actor["role"], "security.user.disable"):
+            raise PermissionDenied("Permission denied")
+        identities, sessions, audit = security_services()
+        before = identities.get(user_id)
+        updated = identities.update(user_id, **request)
+        if before["role"] != updated["role"]:
+            audit.append("USER_ROLE_CHANGED", actor_user_id=actor["user_id"], target_type="user",
+                         target_id=user_id, context={"from_role": before["role"], "to_role": updated["role"]})
+        if before["enabled"] != updated["enabled"]:
+            event = "USER_ENABLED" if updated["enabled"] else "USER_DISABLED"
+            audit.append(event, actor_user_id=actor["user_id"], target_type="user", target_id=user_id)
+            if not updated["enabled"]:
+                revoked = sessions.revoke_user(user_id)
+                audit.append("SESSION_REVOKED", actor_user_id=actor["user_id"], target_type="user",
+                             target_id=user_id, context={"count": revoked})
+        return self.reply(200, {"user": updated})
+
     def method_not_allowed(self):
         return self.reply(
             405,
             error_document("method_not_allowed", f"Method {self.command} is not supported"),
-            headers={"Allow": "GET, POST, PUT, DELETE"},
+            headers={"Allow": "GET, POST, PUT, PATCH, DELETE"},
         )
 
-    do_PATCH = method_not_allowed
     do_OPTIONS = method_not_allowed
     do_HEAD = method_not_allowed
     do_TRACE = method_not_allowed
@@ -503,6 +830,7 @@ def initialize_service(config=CONFIG):
     initialize_runtime_directories(config)
     configure_logging(config)
     initialize_database(config.database_path)
+    initialize_security_database(config.security_database_path)
     seed_demo_history(config.database_path)
     status = operational_status(config, config.database_path)
     if status["status"] != "ready":

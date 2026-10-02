@@ -20,7 +20,9 @@ class ImportNotFound(LookupError):
 class StagingStore:
     def __init__(self, root):
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(self.root, 0o700)
 
     def _directory(self, import_id):
         if not isinstance(import_id, str) or not IMPORT_ID.fullmatch(import_id):

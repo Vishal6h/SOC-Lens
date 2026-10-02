@@ -42,7 +42,9 @@ class PreparationService:
     def __init__(self, config):
         self.config = config
         self.root = Path(config.import_dir) / "sessions"
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if os.name == "posix":
+            os.chmod(self.root, 0o700)
         self.imports = StagingStore(config.import_dir)
 
     def _directory(self, session_id):

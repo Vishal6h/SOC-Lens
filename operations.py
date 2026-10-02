@@ -15,6 +15,8 @@ from assessment_history import SCHEMA_VERSION
 from config import AppConfig
 from engine import POLICY
 from reporting import REPORT_SCHEMA_VERSION
+from security.audit import AuditChainError, SecurityAuditLog
+from security.storage import SECURITY_SCHEMA_VERSION, security_diagnostics
 
 
 APP_VERSION = "1.0.0"
@@ -64,6 +66,8 @@ def configure_logging(config: AppConfig) -> logging.Logger:
             backupCount=3,
             encoding="utf-8",
         )
+        if os.name == "posix":
+            os.chmod(config.log_dir / "soclens.log", 0o600)
     except OSError:
         logger.exception(
             "File logging could not be initialized",
@@ -79,6 +83,7 @@ def runtime_directories_ready(config: AppConfig) -> bool:
     directories = {
         config.data_dir,
         config.database_path.parent,
+        config.security_database_path.parent,
         config.backup_dir,
         config.export_dir,
         config.log_dir,
@@ -88,6 +93,22 @@ def runtime_directories_ready(config: AppConfig) -> bool:
         path.is_dir() and os.access(path, os.R_OK | os.W_OK | os.X_OK)
         for path in directories
     )
+
+
+def filesystem_permissions_status(config: AppConfig) -> dict:
+    """Report restrictive POSIX modes without claiming equivalent Windows semantics."""
+    if os.name != "posix":
+        return {"supported": False, "restricted": None}
+    paths = {
+        config.data_dir, config.database_path.parent, config.security_database_path.parent,
+        config.backup_dir, config.export_dir, config.log_dir, config.import_dir,
+    }
+    paths.update(path for path in (config.database_path, config.security_database_path) if path.exists())
+    try:
+        restricted = all((path.stat().st_mode & 0o077) == 0 for path in paths if path.exists())
+    except OSError:
+        restricted = False
+    return {"supported": True, "restricted": restricted}
 
 
 def database_diagnostics(database: Path) -> dict:
@@ -114,8 +135,21 @@ def database_diagnostics(database: Path) -> dict:
 
 def operational_status(config: AppConfig, database: Path) -> dict:
     database_status = database_diagnostics(database)
+    security_status = security_diagnostics(config.security_database_path)
+    try:
+        audit_chain_ready = security_status["ready"] and SecurityAuditLog(
+            config.security_database_path
+        ).verify()["valid"]
+    except (AuditChainError, OSError, sqlite3.Error):
+        audit_chain_ready = False
     directories_ready = runtime_directories_ready(config)
-    ready = database_status["ready"] and directories_ready
+    permissions = filesystem_permissions_status(config)
+    permission_ready = permissions["restricted"] is not False or config.environment != "production"
+    security_config_valid = config.auth_mode == "local" or config.environment == "test"
+    administrator_ready = security_status.get("administrator_ready", False)
+    identity_ready = administrator_ready or config.auth_mode == "disabled"
+    ready = (database_status["ready"] and security_status["ready"] and audit_chain_ready and identity_ready
+             and directories_ready and permission_ready and security_config_valid)
     return {
         "service": "SOCLens",
         "version": APP_VERSION,
@@ -125,8 +159,17 @@ def operational_status(config: AppConfig, database: Path) -> dict:
             "ready": database_status["ready"],
             "schema_version": database_status["schema_version"],
         },
+        "security": {
+            "ready": security_status["ready"],
+            "schema_version": security_status["schema_version"],
+            "authentication": "enabled" if config.auth_mode == "local" else "test_bypass",
+            "administrator_ready": administrator_ready,
+            "audit_chain_ready": audit_chain_ready,
+        },
         "directories_ready": directories_ready,
+        "filesystem_permissions": permissions,
         "supported_schema_versions": [SCHEMA_VERSION],
+        "supported_security_schema_versions": [SECURITY_SCHEMA_VERSION],
         "policy_version": POLICY["id"],
         "report_schema_version": REPORT_SCHEMA_VERSION,
     }

@@ -27,6 +27,7 @@ from database_operations import (
 )
 from engine import assess
 from operations import JsonFormatter, operational_status
+from security import initialize_security_database
 import server as server_module
 
 
@@ -133,9 +134,11 @@ class HandlerIntegrationTests(unittest.TestCase):
         self.config = load_config({
             "SOCLENS_ENV": "test",
             "SOCLENS_DATA_DIR": self.temporary.name,
+            "SOCLENS_AUTH_MODE": "disabled",
         }, root=ROOT)
         initialize_runtime_directories(self.config)
         initialize_database(self.config.database_path)
+        initialize_security_database(self.config.security_database_path)
         self.original_config = server_module.CONFIG
         self.original_database = server_module.DB
         server_module.CONFIG = self.config

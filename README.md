@@ -316,6 +316,15 @@ startup with a clear error.
 | `SOCLENS_EXPORT_DIR` | `<data>/exports` | Operator-managed export destination |
 | `SOCLENS_LOG_DIR` | `<data>/logs` | Rotating service log destination |
 | `SOCLENS_IMPORT_DIR` | `<data>/imports` | Staged import metadata and normalized fragments |
+| `SOCLENS_SECURITY_DB_PATH` | `<data>/security/security.sqlite3` | Dedicated identity, session, and security-audit database |
+| `SOCLENS_AUTH_MODE` | `local` | Implemented mode is `local`; `disabled` is accepted only in explicit test mode |
+| `SOCLENS_SESSION_IDLE_MINUTES` | `30` | Sliding session idle timeout |
+| `SOCLENS_SESSION_MAX_HOURS` | `12` | Absolute session lifetime |
+| `SOCLENS_LOGIN_ATTEMPT_LIMIT` | `5` | Failed attempts in the bounded login window before temporary throttling |
+| `SOCLENS_LOGIN_ATTEMPT_WINDOW_MINUTES` | `15` | Failed-login counting window |
+| `SOCLENS_LOGIN_BLOCK_SECONDS` | `60` | Temporary login throttle duration |
+| `SOCLENS_PASSWORD_SCRYPT_N` | `16384` | Power-of-two scrypt work parameter (bounded by configuration) |
+| `SOCLENS_COOKIE_SECURE` | false outside production; true in production | Mark the session cookie Secure; production refuses false |
 | `SOCLENS_LOG_LEVEL` | `INFO` | `CRITICAL`, `ERROR`, `WARNING`, `INFO`, or `DEBUG` |
 | `SOCLENS_REQUEST_SIZE_LIMIT` | `2000000` | Maximum JSON request bytes (maximum configurable value: 100 MB) |
 | `SOCLENS_INGESTION_MAX_UPLOAD_BYTES` | request-size limit | Maximum bytes in one evidence file |
@@ -333,6 +342,7 @@ runtime/
   exports/
   imports/
   logs/
+  security/
 ```
 
 Source-controlled synthetic fixtures remain under `data/`. The legacy repository
@@ -399,10 +409,152 @@ For a local production-mode service using the default persistent layout:
 SOCLENS_ENV=production SOCLENS_LOG_LEVEL=INFO python3 server.py
 ```
 
-Startup logs the service version, environment, bind address/port, database readiness
-and schema, scoring policy, and report schema. Keep the default localhost bind until
-authentication, authorization, TLS/reverse-proxy controls, and deployment hardening
-are implemented in a later phase.
+Bootstrap an Admin before this command. Startup logs the service version, environment,
+bind address/port, database readiness and schema, scoring policy, and report schema.
+Authentication and authorization are implemented, but TLS termination and deployment
+infrastructure are not. Keep the default localhost bind; production cookies require an
+HTTPS browser origin supplied by a controlled reverse-proxy boundary.
+
+### Enterprise Security
+
+Phase 5 places a default-deny identity and authorization boundary in front of every
+assessment, evidence, preparation, history, report, audit-package, readiness, and
+administrative API. Only `/`, `/app.js`, `/style.css`, and `/api/health` are public.
+The complete threat model, endpoint classification, and exact permission matrix are
+in [docs/enterprise-security.md](docs/enterprise-security.md).
+
+#### Secure first start
+
+There is no default user or password, and the browser cannot create the first user.
+Use the same environment and data-directory settings for the CLI and service:
+
+```bash
+SOCLENS_ENV=development SOCLENS_DB_PATH=runtime/db/assessments.sqlite3 python3 security_cli.py create-admin
+SOCLENS_ENV=development SOCLENS_DB_PATH=runtime/db/assessments.sqlite3 python3 server.py
+```
+
+The CLI prompts for the username, display name, password, and confirmation. Passwords
+are read with `getpass`, are not accepted as command-line arguments, and are never
+printed. For a production-mode process, bootstrap first and place the localhost-bound
+service behind a correctly configured HTTPS reverse proxy before opening the UI:
+
+```bash
+SOCLENS_ENV=production python3 security_cli.py create-admin
+SOCLENS_ENV=production python3 server.py
+```
+
+Production sets `Secure` on the cookie and therefore is not a usable plain-HTTP browser
+deployment. The application does not terminate TLS or emit HSTS on localhost HTTP;
+the HTTPS boundary must provide transport security and an appropriate HSTS policy.
+
+#### Identities, passwords, and roles
+
+Local identities are stored in the dedicated security SQLite database, never in the
+assessment-history table. Usernames are NFKC-normalized, case-folded, bounded, and
+restricted to control-safe identifiers. APIs never return password credentials.
+
+Passwords use Python's standard `hashlib.scrypt` with a unique 128-bit random salt,
+a versioned credential format, bounded configurable work parameters, and constant-time
+derived-key comparison. Passwords are neither plaintext nor reversible. The initial
+roles are `ADMIN`, `SUPERVISOR`, `ASSESSOR`, `REVIEWER`, and `AUDITOR`; backend checks
+use the centralized matrix in `security/authorization.py`. Missing permissions deny.
+
+Admin-only Settings controls can list/create users, change a role, enable/disable an
+account, and perform an explicit administrative credential reset. Disabling an account
+revokes its sessions. Users can change their own password by proving the current one;
+that operation rotates their browser session and revokes all old sessions.
+
+#### Sessions, CSRF, and login abuse protection
+
+Authentication issues a 256-bit opaque token in an `HttpOnly; SameSite=Strict; Path=/`
+cookie. Only its SHA-256 digest is persisted. Session authority remains server-side and
+is checked against idle expiry, absolute expiry, revocation, account state, current
+credential version, and current role on every protected request. JavaScript never
+receives or stores the session token; no auth token uses localStorage, sessionStorage,
+the URL, or a DOM field.
+
+Every cookie-authenticated POST, PUT, PATCH, and DELETE requires a cryptographically
+random session-bound CSRF header in addition to same-origin/Fetch Metadata validation.
+The CSRF value is held only in page memory. Login has a same-origin boundary, generic
+invalid-credential errors, an unknown-user dummy scrypt check, a bounded failure window,
+and temporary throttling. Passwords are never logged.
+
+#### Security audit and administrative CLI
+
+Security events are separate from operational logs and contain bounded metadata only.
+They cover authentication, revocation, credential/account changes, authorization
+denials, assessment/import/export activity, and CLI backup/restore activity. Passwords,
+credentials, session/CSRF values, secrets, raw evidence, and request payloads are
+rejected from audit context.
+
+Events form a canonical SHA-256 previous-entry chain with a separately maintained
+head/count record. Verify it with:
+
+```bash
+python3 security_cli.py verify-audit-chain
+```
+
+This detects missing, reordered, and edited rows under the documented model. It is
+tamper-evident, not tamper-proof, signed, or cryptographically non-repudiating. An
+attacker with unrestricted database write access can replace both the log and its local
+anchor, so protected external anchoring is future work.
+
+Other bounded CLI operations are `create-user`, `disable-user`, `enable-user`,
+`reset-password`, `list-users`, and `revoke-sessions`. Credential prompts use
+`getpass`; process-list-visible password arguments are not supported. Assessment
+restore remains CLI-only and is never exposed as a web endpoint.
+
+#### Secrets, filesystem, and data at rest
+
+Opaque sessions do not require a browser-readable or server signing secret. Future
+identity-provider secrets must be supplied through the runtime environment or a
+deployment secret provider; `.env`, key, PEM, and `secrets/` artifacts are ignored by
+Git. Startup/readiness never returns secret values or configured filesystem paths.
+
+On POSIX, runtime directories are tightened to `0700` and SQLite databases, staged
+metadata, logs, and backups are created/tightened to `0600` where applicable. Production
+readiness reports failure when restrictive modes cannot be established. Windows has
+different ACL semantics and readiness does not make a POSIX-mode claim there.
+
+SQLite assessment/security databases and backups are **not encrypted at rest**. Use an
+encrypted workstation/volume and protected OS account. Phase 5 does not add homemade
+encryption. The future persistence boundary may use vetted SQLCipher or PostgreSQL and
+platform key management. The assessment backup CLI does not yet package the separate
+security database; protect and back up that database through controlled host-level
+procedures while the service is stopped.
+
+#### Readiness, OIDC status, and recovery
+
+Authenticated readiness now checks the assessment database, security schema, enabled
+Admin presence, audit-chain validity, runtime directories, authentication mode, and
+production filesystem modes without disclosing paths or secrets. `local` is the only
+implemented identity mode. `oidc` is a future adapter boundary and is rejected rather
+than partially implemented; SOCLens contains no homemade OAuth/OIDC protocol logic.
+
+Account recovery is an offline administrative action: an authorized host operator runs
+`security_cli.py reset-password <username>`, after which old sessions are revoked. If
+the only Admin account is unavailable, this CLI path remains the recovery boundary.
+
+#### Manual security acceptance
+
+Use isolated temporary `SOCLENS_DATA_DIR` and `SOCLENS_DB_PATH` values; never point this
+procedure at tracked or operational databases.
+
+1. Start a clean isolated environment and confirm anonymous assessment/history APIs return `AUTHENTICATION_REQUIRED`.
+2. Bootstrap Admin with `security_cli.py create-admin`, start the service, and sign in.
+3. Verify Admin user administration, then create an Assessor and an Auditor.
+4. As Assessor, import and run an assessment; confirm user administration and report export are denied.
+5. As Auditor, confirm assessment/history/report reads and exports work but imports, runs, and account changes are denied.
+6. Sign out and confirm the captured session cookie cannot be reused.
+7. Change/reset a password and confirm earlier sessions cannot be reused.
+8. Inspect `/api/security/audit` as Admin/Auditor and run `security_cli.py verify-audit-chain`.
+9. Confirm authenticated `/api/ready` reports database, security, Admin, audit-chain, directory, and permission readiness.
+10. Confirm `/api/health` remains compact and public, while static assets reveal no credentials or tokens.
+
+Known Phase 5 limitations are the lack of TLS termination, HSTS ownership, OIDC/SSO,
+MFA, external audit anchoring, encrypted-at-rest SQLite, Windows ACL enforcement,
+centralized multi-node sessions/rate limits, and automated security-database backup.
+SOCLens remains localhost/controlled-network oriented.
 
 ### Real evidence ingestion
 
@@ -546,7 +698,7 @@ Run the complete Python test suite:
 python3 -B -m unittest discover -s . -v
 ```
 
-Current validated status: **146 tests passing**, including production-foundation,
+Current validated status: **164 tests passing**, including production-foundation,
 application-shell, ingestion, correlation, preparation-session, history-compatibility,
 scoring-safety, and regression coverage.
 
@@ -616,7 +768,7 @@ It supports human supervisory assessment. Scores, findings, evidence references,
 
 ## 18. Current limitations
 
-- No authentication, RBAC, or SSO
+- Local authentication and RBAC are implemented; SSO/OIDC and MFA are not implemented
 - No encryption at rest
 - No live SIEM, EDR, or vendor connectors
 - Evidence references are opaque identifiers and are not retrieved
@@ -634,7 +786,7 @@ Potential next steps, subject to design and validation, include:
 
 - controlled pilot validation with authorized SOC data;
 - independent assessor agreement testing;
-- RBAC and SSO;
+- SSO/OIDC and MFA integration;
 - encryption at rest;
 - protected evidence retention;
 - an open connector schema such as OCSF;

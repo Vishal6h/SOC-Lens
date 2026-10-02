@@ -63,6 +63,15 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('aria-live="polite"', self.html)
         self.assertIn('class="skip-link"', self.html)
 
+    def test_authentication_ui_uses_backend_permissions_without_browser_token_storage(self):
+        self.assertIn('id="login-form"', self.html)
+        self.assertIn('type="password"', self.html)
+        self.assertIn('data-requires-permission="security.user.read"', self.html)
+        self.assertIn("function hasPermission(permission)", self.javascript)
+        self.assertNotIn("localStorage", self.javascript)
+        self.assertNotIn("sessionStorage", self.javascript)
+        self.assertNotIn("document.cookie", self.javascript)
+
 
 if __name__ == "__main__":
     unittest.main()
